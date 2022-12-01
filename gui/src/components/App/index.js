@@ -23,12 +23,18 @@ import {
     selectLoadUrl,
     selectIsConnectionError,
     selectHasFetchedEnvConfig,
+    selectAuthStatus,
+    selectAuthToken,
+    selectAuthEnabled,
 } from '../../selectors';
 import {
     setOverlayVisibility,
     fetchServerStatus,
     fetchEnvConfig,
+    updateAuthStatus,
+    setAuthToken,
 } from '../../actionCreators';
+import blurredBackground from './MATLAB-env-blur.png';
 
 function App() {
     const dispatch = useDispatch();
@@ -42,6 +48,9 @@ function App() {
     const error = useSelector(selectError);
     const loadUrl = useSelector(selectLoadUrl);
     const isConnectionError = useSelector(selectIsConnectionError);
+    const authStatus = useSelector(selectAuthStatus);
+    const authEnabled = useSelector(selectAuthEnabled);
+    const authToken = useSelector(selectAuthToken);
 
     const toggleOverlayVisible = useCallback(
         () => dispatch(setOverlayVisibility(!overlayVisible)),
@@ -122,6 +131,27 @@ function App() {
         }
     }, [loadUrl]);
 
+    useEffect(() => {
+        var url_string = document.URL;
+        if(url_string.includes("?mwi_auth_token=")){
+            
+            var token = url_string.split("?mwi_auth_token=")[1];
+            window.history.replaceState(null, '', '/');
+            
+            if(!token){
+                token = null;
+            }
+            
+            dispatch(updateAuthStatus(token));
+            const data = {authToken: token};
+            dispatch(setAuthToken(data));
+        }
+        else if(!authStatus){ 
+            dispatch(updateAuthStatus(authToken));
+        }
+    }
+    , [authStatus, authToken, dispatch]);
+    
     // Display one of:
     // * Confirmation
     // * Help
@@ -132,9 +162,14 @@ function App() {
     if (dialog) {
         // TODO Inline confirmation component build
         overlayContent = dialog;
-    } else if (hasFetchedServerStatus && (!licensingProvided)) {
-        overlayContent = <LicensingGatherer />;
-    } else if (licensingProvided && !dialog) {
+    } 
+    
+    // if (tokenAuth is disabled, or we are authorized) AND we don't have license info, then ask for it
+    else if ((!licensingProvided) && hasFetchedServerStatus && (!authEnabled || authStatus)) {
+        overlayContent = <LicensingGatherer role="licensing" aria-describedby="license-window" />;
+    } 
+    // in all other cases, we will either ask for the token, or have the licensing
+    else if (!dialog) {
         overlayContent = (
             <Information closeHandler={toggleOverlayVisible}>
                 <Controls callback={args => setDialogModel(args)} />
@@ -156,9 +191,9 @@ function App() {
         ? 'http://localhost:31515/index-jsd-cr.html'
         : './index-jsd-cr.html';
 
-    const matlabJsd = matlabUp ? (
+    const matlabJsd = (matlabUp && (!authEnabled || authStatus)) ? (
         <MatlabJsd url={matlabUrl} />
-    ) : null;
+    ) : <img style={{objectFit: 'fill'}}src={blurredBackground} alt='Blurred MATLAB environment'/>;
 
     const overlayTrigger = overlayVisible ? null : <OverlayTrigger />;
 

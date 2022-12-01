@@ -17,8 +17,32 @@ import {
     RECEIVE_START_MATLAB,
     RECEIVE_ERROR,
     RECEIVE_ENV_CONFIG,
+    SET_AUTH_ENABLED,
+    SET_AUTH_STATUS,
+    SET_AUTH_TOKEN
 } from '../actions';
 import { selectMatlabPending } from '../selectors';
+
+export function setAuthEnabled(authInfo){
+    return{
+        type: SET_AUTH_ENABLED,
+        authInfo
+    }
+}
+
+export function setAuthStatus(authInfo){
+    return {
+        type: SET_AUTH_STATUS,
+        authInfo
+    }
+}
+
+export function setAuthToken(authInfo){
+    return{
+        type: SET_AUTH_TOKEN,
+        authInfo
+    }
+}
 
 export function setTriggerPosition(x, y) {
     return {
@@ -160,12 +184,11 @@ export async function fetchWithTimeout(dispatch, resource, options = {}, timeout
     }
 }
 
-
 export function fetchServerStatus() {
     return async function (dispatch, getState) {
 
         dispatch(requestServerStatus());
-        const response = await fetchWithTimeout(dispatch, './get_status', {}, 10000)
+        const response = await fetchWithTimeout(dispatch, './get_status', {}, 10000);
         const data = await response.json();
         dispatch(receiveServerStatus(data));
 
@@ -179,10 +202,36 @@ export function fetchEnvConfig() {
         const response = await fetchWithTimeout(dispatch, './get_env_config', {}, 10000);
         const data = await response.json();
         dispatch(receiveEnvConfig(data));
-
+        dispatch(setAuthEnabled(data));
+        dispatch(setAuthStatus(data));
     };
 }
 
+export function fetchAuthToken(){
+    return async function (dispatch, getState) {
+        const response = await fetchWithTimeout(dispatch, './mwi_auth_token', {}, 10000);
+        const data = await response.json();
+        dispatch(setAuthToken(data));
+    };
+}
+
+export function updateAuthStatus(token){
+    // make response consistent with rest of reducers (data)
+    return async function(dispatch, getState){
+        
+        const options = {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/text',
+                'Content-Type': 'application/text'
+                },
+            body: token
+        };
+        const response = await fetchWithTimeout(dispatch, './authenticate_request', options, 15000);
+        const data = await response.json()
+        dispatch(setAuthStatus(data));
+    }
+}
 
 export function fetchSetLicensing(info) {
     return async function (dispatch, getState) {

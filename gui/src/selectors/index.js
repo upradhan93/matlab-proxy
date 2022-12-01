@@ -1,6 +1,7 @@
 // Copyright (c) 2020-2022 The MathWorks, Inc.
 
 import { createSelector } from 'reselect';
+import { authEnabled } from '../reducers';
 
 export const selectTutorialHidden = state => state.tutorialHidden;
 export const selectServerStatus = state => state.serverStatus;
@@ -10,9 +11,13 @@ export const selectWsEnv = state => state.serverStatus.wsEnv;
 export const selectSubmittingServerStatus = state => state.serverStatus.isSubmitting;
 export const selectHasFetchedServerStatus = state => state.serverStatus.hasFetched;
 export const selectLicensingInfo = state => state.serverStatus.licensingInfo;
-export const selectLoadUrl = state => state.loadUrl;
 export const selectServerStatusFetchFailCount = state => state.serverStatus.fetchFailCount;
+export const selectLoadUrl = state => state.loadUrl;
 export const selectError = state => state.error;
+export const selectAuthInfo = state => state.authInfo;
+export const selectAuthEnabled = state => state.authInfo.authEnabled;
+export const selectAuthStatus = state => state.authInfo.authStatus;
+export const selectAuthToken = state => state.authInfo.authToken;
 
 export const selectTriggerPosition = createSelector(
     state => state.triggerPosition,
@@ -57,15 +62,19 @@ export const selectMatlabStopping = createSelector(
 export const selectOverlayHidable = createSelector(
     selectMatlabStatus,
     selectIsError,
-    (matlabStatus, isError) => (matlabStatus === 'up' && !isError)
+    selectAuthEnabled,
+    selectAuthStatus,
+    (matlabStatus, isError, authEnabled, authStatus) => ((matlabStatus === 'up') && !isError && (!authEnabled || authStatus))
 );
 
 export const selectOverlayVisibility = createSelector(
     state => state.overlayVisibility,
     selectMatlabUp,
     selectIsError,
-    (visibility, matlabUp, isError) => (
-        !matlabUp || visibility || isError
+    selectAuthEnabled,
+    selectAuthStatus,
+    (visibility, matlabUp, isError, authEnabled, authStatus) => (
+        (authEnabled && !authStatus) || !matlabUp || visibility || isError
     )
 );
 
@@ -122,8 +131,8 @@ export const selectInformationDetails = createSelector(
     selectMatlabStatus,
     selectIsError,
     selectError,
-    (matlabStatus, isError, error) => {
-
+    selectAuthInfo,
+    (matlabStatus, isError, error, authInfo) => {
         // Check for any errors on the front-end 
         // to see if HTTP Requests are timing out.       
         if (isError && error.statusCode === 408) {
@@ -134,6 +143,13 @@ export const selectInformationDetails = createSelector(
             }
         }
 
+        if(isError && authInfo.authEnabled && (authInfo.error)) {
+            return {
+                icon: 'warning',
+                alert: 'warning',
+                label: 'Invalid Token',
+            }
+        }
 
         // Check status of MATLAB for errors
         switch (matlabStatus) {

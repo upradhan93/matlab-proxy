@@ -19,7 +19,7 @@ from matlab_proxy.default_configuration import config
 from matlab_proxy.util import list_servers, mwi
 from matlab_proxy.util.mwi import environment_variables as mwi_env
 from matlab_proxy.util.mwi import token_auth
-from matlab_proxy.util.mwi.exceptions import LicensingError
+from matlab_proxy.util.mwi.exceptions import LicensingError, invalidToken
 
 mimetypes.add_type("font/woff", ".woff")
 mimetypes.add_type("font/woff2", ".woff2")
@@ -118,7 +118,10 @@ async def get_env_config(req):
     Returns:
         JSONResponse: contains a Dict representing environment specific configuration serialized to JSON
     """
-    config = req.app["state"].settings["env_config"]
+    state = req.app["state"]
+    config = state.settings["env_config"]
+    config["authEnabled"] = state.settings["mwi_is_mwi_token_auth_enabled"]
+    config["authStatus"] = state.settings["mwi_auth_status"]
     return web.json_response(config)
 
 
@@ -140,14 +143,23 @@ async def authenticate_request(req):
     Returns:
         Response with status = 200 if request is authentic else return status = 401
     """
+    state = req.app["state"]
+    authStatus = False
     if await token_auth.authenticate_request(req):
         logger.debug("!!!!!! REQUEST IS AUTHORIZED !!!!")
-        return web.Response(status=200)
+        authStatus = True
+        sendError = None
     else:
-        # Return HTTPUnauthorized
         logger.debug("!!!!!! REQUEST IS NOT AUTHORIZED !!!!")
-        return web.Response(status=401)
-
+        authStatus = False
+        sendError = marshal_error(invalidToken("Token invalid. Please enter a valid token to authenticate"))
+    
+    return web.json_response(
+        {
+            "authStatus": authStatus,
+            "error": sendError,
+        }
+    )
 
 async def start_matlab(req):
     """API Endpoint to start MATLAB
@@ -270,7 +282,7 @@ async def termination_integration_delete(req):
         sys.exit(0)
 
 
-@token_auth.decorator_authenticate_access
+# @token_auth.decorator_authenticate_access
 async def root_redirect(request):
     """API Endpoint to return the root index.html file.
 
@@ -281,7 +293,8 @@ async def root_redirect(request):
         HTTPResponse: HTTPResponse Object containing the index.html file.
     """
     base_url = request.app["settings"]["base_url"]
-    return aiohttp.web.HTTPFound(f"{base_url}/index.html")
+    parameters = request.path_qs[1:]
+    return aiohttp.web.HTTPFound(f"{base_url}/index.html{parameters}")
 
 
 async def static_get(req):
@@ -563,15 +576,10 @@ async def get_mwi_auth_token(request):
     mwi_auth_token = app_settings["mwi_auth_token"]
     if is_mwi_token_auth_enabled:
         logger.info("get_mwi_auth_token: Responding with token information!!")
-        return aiohttp.web.HTTPFound(
-            f"{base_url}/token.html?mwi_auth_token={mwi_auth_token}"
-        )
-    else:
-        logger.info("get_mwi_auth_token: Token Auth mode not enabled")
-        return aiohttp.web.Response(
-            content_type="text/html",
-            body=f"Token-Based Authentication is not enabled!",
-        )
+        return web.json_response(
+        {
+            "authToken": mwi_auth_token,
+        })
 
 
 def configure_and_start(app):
@@ -644,8 +652,8 @@ def create_app(config_name=matlab_proxy.get_default_config_name()):
     base_url = app["settings"]["base_url"]
     app.router.add_route("GET", f"{base_url}/get_status", get_status)
     app.router.add_route(
-        "GET", f"{base_url}/authenticate_request", authenticate_request
-    )
+        "POST", f"{base_url}/authenticate_request", authenticate_request
+    ) 
     app.router.add_route("GET", f"{base_url}/get_env_config", get_env_config)
     app.router.add_route("PUT", f"{base_url}/start_matlab", start_matlab)
     app.router.add_route("DELETE", f"{base_url}/stop_matlab", stop_matlab)
@@ -659,7 +667,7 @@ def create_app(config_name=matlab_proxy.get_default_config_name()):
     app.router.add_route("*", f"{base_url}/", root_redirect)
     app.router.add_route("*", f"{base_url}", root_redirect)
     mwi_auth_token_name = app["settings"]["mwi_auth_token_name"]
-    app.router.add_route("GET", f"{base_url}/get_mwi_auth_token", get_mwi_auth_token)
+    app.router.add_route("GET", f"{base_url}/mwi_auth_token", get_mwi_auth_token)
 
     app.router.add_route("*", f"{base_url}/{{proxyPath:.*}}", matlab_view)
     app.on_cleanup.append(cleanup_background_tasks)

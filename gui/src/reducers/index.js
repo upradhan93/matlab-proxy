@@ -20,7 +20,37 @@ import {
     RECEIVE_START_MATLAB,
     RECEIVE_ERROR,
     RECEIVE_ENV_CONFIG,
+    SET_AUTH_ENABLED,
+    SET_AUTH_STATUS,
+    SET_AUTH_TOKEN,
 } from '../actions';
+
+export function authEnabled(state = true, action){
+    switch(action.type){
+        case SET_AUTH_ENABLED:
+            return action.authInfo.authEnabled;
+        default:
+            return state;
+    }
+}
+
+export function authStatus(state = false, action){
+    switch(action.type){
+        case SET_AUTH_STATUS:
+            return action.authInfo.authStatus;
+        default:
+            return state;
+    }
+}
+
+export function authToken(state = null, action){
+    switch(action.type){
+        case SET_AUTH_TOKEN:
+            return action.authInfo.authToken;
+        default:
+            return state;
+    }
+}
 
 export function triggerPosition(state = { x: window.innerWidth / 2 + 27, y: 0 }, action) {
     switch (action.type) {
@@ -192,6 +222,15 @@ export function loadUrl(state = null, action) {
 
 export function error(state = null, action) {
     switch (action.type) {
+        case SET_AUTH_STATUS:
+            if(action?.authInfo.error !== null){
+                return {
+                    message: action?.authInfo.error.message,
+                    type: action?.authInfo.error.type,
+                    logs: null
+                }
+            }
+            else return null;
         case RECEIVE_ERROR:
             return {
                 message: action.error,
@@ -222,6 +261,12 @@ export function envConfig(state = null, action) {
     }
 }
 
+export const authInfo = combineReducers({
+    authEnabled,
+    authStatus,
+    authToken
+});
+
 export const serverStatus = combineReducers({
     licensingInfo,
     matlabStatus,
@@ -233,6 +278,7 @@ export const serverStatus = combineReducers({
     fetchFailCount
 });
 
+
 export default combineReducers({
     triggerPosition,
     tutorialHidden,
@@ -241,4 +287,5 @@ export default combineReducers({
     loadUrl,
     error,
     envConfig,
+    authInfo,
 });

@@ -22,10 +22,10 @@ def decorator_authenticate_access(endpoint):
     async def authenticate_access(request):
         """
         If Authentication is enabled, this function expects the token to be present either in
-             the URL or in the session cookie.
+            the URL or in the session cookie.
         If token is provided and matches the expected secret, then the request is considered authentic,
             and the token is saved into the session cookie.
-        """
+        """        
         logger.debug(f" inside authenticate_access for request:{request}")
         app_settings = request.app["settings"]
         base_url = app_settings["base_url"]
@@ -35,18 +35,6 @@ def decorator_authenticate_access(endpoint):
                 f" Request is authenticated, proceed to endpoint:{endpoint}{request}"
             )
             return await endpoint(request)
-        else:
-            # This branch intends to redirect users to the error page asking for TOKEN.
-            # However, we need to tell this page which page to redirect to on successful validation.
-
-            attempted_url = str(request.rel_url)
-
-            # Strip URL paramters
-            attempted_url = attempted_url.split("?", 1)[0]
-            logger.debug(f"attempted_url: {attempted_url}")
-            return web.HTTPFound(
-                f"{base_url}/authorization.html?attempted_url={request.rel_url}"
-            )
 
     return authenticate_access
 
@@ -81,9 +69,9 @@ async def authenticate_request(request):
         base_url = app_settings["base_url"]
 
         # get token if present in URL
-        parsed_url_token = request.rel_url.query.get(token_name, None)
+        parsed_url_token = await request.text();
 
-        if parsed_url_token is None:
+        if parsed_url_token == '':
             logger.debug("No Token found in URL. Checking session cookie...")
 
             # Check to see if there are cookies?
@@ -119,7 +107,7 @@ async def authenticate_request(request):
                 return True
             else:
                 logger.info("Invalid Token found in URL!")
-                logger.debug(f"Expected: {the_secret_token}    ")
+                logger.debug(f"Expected: {the_secret_token}")
                 logger.debug(f"Actual  : {parsed_url_token}")
                 return False
     else:
