@@ -72,7 +72,7 @@ def validate_mlm_license_file(nlm_connections_str):
         f" OR path to a valid license file."
     )
 
-    seperator = ":" if system.is_posix() else ";"
+    seperator = system.get_mlm_license_file_seperator()
     nlm_connection_strs = re.split(f"{seperator}|,", nlm_connections_str)
 
     logger.debug(
@@ -92,6 +92,7 @@ def validate_mlm_license_file(nlm_connections_str):
             if match:
                 logger.debug(f"Successfully validated {nlm_connection_str}")
             else:
+                logger.error(f"Failed to validate:{nlm_connection_str}")
                 logger.error(
                     "NLM_info is not of the form port@hostname or a valid path to a file"
                 )
