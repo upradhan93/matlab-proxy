@@ -67,7 +67,7 @@ def get_supported_termination_signals():
 
 def get_mlm_license_file_seperator():
     """Returns OS specific seperator for MLM_LICENSE_FILE environment variable
-    
+
     Returns:
         str: OS specific seperator for MLM_LICENSE_FILE
     """
