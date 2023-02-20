@@ -65,6 +65,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Use Node.js 16.x
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16.x
+
       - name: Install dependencies
         # Installing wheel package will slightly speed-up installing dependencies.
         # Installing the package with "[dev]" flag  will install test dependecies as well,
