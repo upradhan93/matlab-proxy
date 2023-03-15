@@ -26,8 +26,8 @@ describe('selectors', () => {
       fetchFailCount: 2,
     },
     authInfo: {
-      authEnabled: 'false',
-      authStatus: 'false',
+      authEnabled: false,
+      authStatus: false,
       authToken: null,
     },
   };
@@ -51,7 +51,7 @@ describe('selectors', () => {
   const { authEnabled,
     authStatus,
     authToken,
-  } = state.authInfo;
+  } = authInfo;
 
   const {
     selectTutorialHidden,
@@ -65,7 +65,7 @@ describe('selectors', () => {
     selectLicensingInfo,
     selectServerStatusFetchFailCount,
     selectAuthEnabled,
-    selectAuthStatus,
+    selectIsAuthenticated,
     selectAuthToken,
     selectTriggerPosition,
     selectIsError,
@@ -84,12 +84,6 @@ describe('selectors', () => {
     selectInformationDetails,
   } = selectors;
 
-  // beforeAll(() => {
-  //   // modifiedState = JSON.parse(JSON.stringify(state));
-  //   // modifiedState.triggerPosition = null;
-  // });
-
-
   describe.each([
     [selectTutorialHidden, tutorialHidden],
     [selectServerStatus, serverStatus],
@@ -102,7 +96,7 @@ describe('selectors', () => {
     [selectLicensingInfo, licensingInfo],
     [selectServerStatusFetchFailCount, fetchFailCount],
     [selectAuthEnabled, authEnabled],
-    [selectAuthStatus, authStatus],
+    [selectIsAuthenticated, authStatus],
     [selectAuthToken, authToken],
     [getFetchAbortController, fetchAbortController]
   ])

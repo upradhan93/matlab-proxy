@@ -18,8 +18,6 @@ describe.each([
   [actionCreators.setOverlayVisibility, [false], { type: actions.SET_OVERLAY_VISIBILITY, visibility: false }],
   [actionCreators.setTriggerPosition, [12, 12], { type: actions.SET_TRIGGER_POSITION, x: 12, y: 12 }],
   [actionCreators.setTriggerPosition, [52, 112], { type: actions.SET_TRIGGER_POSITION, x: 52, y: 112 }],
-  [actionCreators.setAuthEnabled, [true], {type: actions.SET_AUTH_ENABLED, authInfo: true}],
-  [actionCreators.setAuthEnabled, [false], {type: actions.SET_AUTH_ENABLED, authInfo: false}],
   [actionCreators.setAuthStatus, [true], {type: actions.SET_AUTH_STATUS, authInfo: true}],
   [actionCreators.setAuthStatus, [false], {type: actions.SET_AUTH_STATUS, authInfo: false}],
   [actionCreators.setAuthToken, ['string'], {type: actions.SET_AUTH_TOKEN, authInfo: 'string'}],
@@ -220,7 +218,7 @@ describe('Test Async actionCreators', () => {
         }
       }
     });
-    const expectedActions = [actions.SET_AUTH_STATUS];
+    const expectedActions = [actions.SET_AUTH_STATUS, actions.SET_AUTH_TOKEN];
 
     return store.dispatch(actionCreators.updateAuthStatus(token)).then(() => {
       const received = store.getActions();
@@ -236,7 +234,7 @@ describe('Test Async actionCreators', () => {
         error: null
       }
     });
-    const expectedActions = [actions.SET_AUTH_STATUS];
+    const expectedActions = [actions.SET_AUTH_STATUS, actions.SET_AUTH_TOKEN];
 
     return store.dispatch(actionCreators.updateAuthStatus(token)).then(() => {
       const received = store.getActions();
@@ -281,8 +279,6 @@ describe('Test Async actionCreators', () => {
     const expectedActions = [
       actions.REQUEST_ENV_CONFIG,
       actions.RECEIVE_ENV_CONFIG,
-      actions.SET_AUTH_ENABLED,
-      actions.SET_AUTH_STATUS,
     ];
 
     return store.dispatch(actionCreators.fetchEnvConfig()).then(() => {

@@ -13,8 +13,8 @@ import {
     selectMatlabStopping,
     selectMatlabVersion,
     selectError,
-    selectAuthStatus,
-    selectAuthEnabled
+    selectIsAuthenticated,
+    selectAuthEnabled,
 } from '../../selectors';
 import {
     fetchStartMatlab,
@@ -42,7 +42,7 @@ function Controls({
     const matlabVersion = useSelector(selectMatlabVersion);
     const error = useSelector(selectError);
     const authEnabled = useSelector(selectAuthEnabled);
-    const authStatus = useSelector(selectAuthStatus);
+    const isAuthenticated = useSelector(selectIsAuthenticated);
     //     const canTerminateIntegration = !submitting;
     const canResetLicensing = licensed && !submitting;
 
@@ -86,7 +86,7 @@ MATLAB version: ${matlabVersion}%0D%0A`,
             if ((ERROR_TYPE_MAP[btn] || []).includes(error.type)) {
                 return cls + 'btn_color_blue';
             }
-        } else if (btn === 'start' && (authEnabled && !authStatus)) {
+        } else if (btn === 'start' && (authEnabled && !isAuthenticated)) {
             // if there's no error, then highlight the "Start" button (if visible)
             return cls + 'btn_color_blue';
         }
@@ -100,7 +100,7 @@ MATLAB version: ${matlabVersion}%0D%0A`,
                 data-testid='startMatlabBtn'
                 className={getBtnClass(matlabRunning ? 'restart' : 'start')}
                 onClick={() => callback(Confirmations.START)}
-                disabled={!licensed || matlabStarting || matlabStopping || (authEnabled && !authStatus)}
+                disabled={!licensed || matlabStarting || matlabStopping || (authEnabled && !isAuthenticated)}
                 data-for="control-button-tooltip"
                 data-tip={`${matlabRunning ? 'Restart' : 'Start'}  your MATLAB session`}
             >
@@ -112,7 +112,7 @@ MATLAB version: ${matlabVersion}%0D%0A`,
                 data-testid='stopMatlabBtn'
                 className={getBtnClass('stop')}
                 onClick={() => callback(Confirmations.STOP)}
-                disabled={!matlabRunning || (authEnabled && !authStatus)}
+                disabled={!matlabRunning || (authEnabled && !isAuthenticated)}
                 data-for="control-button-tooltip"
                 data-tip="Stop your MATLAB session"
             >
@@ -124,7 +124,7 @@ MATLAB version: ${matlabVersion}%0D%0A`,
                 data-testid='unsetLicensingBtn'
                 className={getBtnClass('sign-out')}
                 onClick={() => callback(Confirmations.SIGN_OUT)}
-                disabled={!canResetLicensing || (authEnabled && !authStatus)}
+                disabled={!canResetLicensing || (authEnabled && !isAuthenticated)}
                 data-for="control-button-tooltip"
                 data-tip={mhlmLicense ? 'Sign out' : 'Unset the network license manager server address'}
             >

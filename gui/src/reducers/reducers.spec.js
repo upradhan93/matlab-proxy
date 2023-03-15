@@ -109,12 +109,12 @@ describe('reducers', () => {
       
       // expect authEnabled to be false
       action = _.cloneDeep(genericAction);
-      action.type = actions.SET_AUTH_ENABLED;
+      action.type = actions.RECEIVE_ENV_CONFIG;
       expect(reducers.authEnabled(undefined, action)).toBe(false);
 
       // expect authEnabled to be true
       action = _.cloneDeep(genericAction);
-      action.type = actions.SET_AUTH_ENABLED;
+      action.type = actions.RECEIVE_ENV_CONFIG;
       action.authInfo.authEnabled = true;
       expect(reducers.authEnabled(undefined, action)).toBe(true);
 

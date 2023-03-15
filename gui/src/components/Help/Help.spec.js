@@ -91,9 +91,6 @@ describe('Help Component', () => {
   });
 
   it('should call onClick function', () => {
-    initialState.authInfo.authEnabled = true;
-    initialState.authInfo.authStatus = true;
-
     const { getByRole } = render(
       <Help closeHandler={closeHandler} dismissAllHandler={closeHandler} />,
       { initialState: initialState }

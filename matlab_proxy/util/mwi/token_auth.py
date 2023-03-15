@@ -41,7 +41,7 @@ def decorator_authenticate_access(endpoint):
 
 def is_mwi_token_auth_enabled(app_settings):
     """Returns True/False based on whether the mwi_auth_token_auth is enabled."""
-    return app_settings["mwi_is_mwi_token_auth_enabled"]
+    return app_settings["mwi_is_token_auth_enabled"]
 
 
 def get_mwi_auth_token_access_str(app_settings):

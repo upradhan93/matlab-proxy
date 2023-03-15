@@ -20,22 +20,26 @@ import {
     RECEIVE_START_MATLAB,
     RECEIVE_ERROR,
     RECEIVE_ENV_CONFIG,
-    SET_AUTH_ENABLED,
     SET_AUTH_STATUS,
     SET_AUTH_TOKEN,
 } from '../actions';
 
+// Stores info on whether token authentication enabled on the backend. 
+// This is enforced by the backend.
 export function authEnabled(state = true, action){
     switch(action.type){
-        case SET_AUTH_ENABLED:
+        case RECEIVE_ENV_CONFIG:
             return action.authInfo.authEnabled;
         default:
             return state;
     }
 }
 
+// Stores status of token authentication.
 export function authStatus(state = false, action){
     switch(action.type){
+        case RECEIVE_ENV_CONFIG:
+            return action.authInfo.authStatus;          
         case SET_AUTH_STATUS:
             return action.authInfo.authStatus;
         default:
@@ -43,10 +47,15 @@ export function authStatus(state = false, action){
     }
 }
 
+// Stores auth token
 export function authToken(state = null, action){
     switch(action.type){
         case SET_AUTH_TOKEN:
-            return action.authInfo.authToken;
+            if(!action.authInfo.error){
+                return action.authInfo.authToken;
+            } else {
+                return state
+            }
         default:
             return state;
     }
@@ -223,10 +232,11 @@ export function loadUrl(state = null, action) {
 export function error(state = null, action) {
     switch (action.type) {
         case SET_AUTH_STATUS:
-            if(action?.authInfo.error !== null){
+            if(action?.authInfo?.error !== null){
+                const {message, type } = action.authInfo.error
                 return {
-                    message: action?.authInfo.error.message,
-                    type: action?.authInfo.error.type,
+                    message: message,
+                    type: type,
                     logs: null
                 }
             }

@@ -17,18 +17,10 @@ import {
     RECEIVE_START_MATLAB,
     RECEIVE_ERROR,
     RECEIVE_ENV_CONFIG,
-    SET_AUTH_ENABLED,
     SET_AUTH_STATUS,
     SET_AUTH_TOKEN
 } from '../actions';
 import { selectMatlabPending } from '../selectors';
-
-export function setAuthEnabled(authInfo){
-    return{
-        type: SET_AUTH_ENABLED,
-        authInfo
-    }
-}
 
 export function setAuthStatus(authInfo){
     return {
@@ -201,9 +193,7 @@ export function fetchEnvConfig() {
         dispatch(requestEnvConfig());
         const response = await fetchWithTimeout(dispatch, './get_env_config', {}, 10000);
         const data = await response.json();
-        dispatch(receiveEnvConfig(data));
-        dispatch(setAuthEnabled(data));
-        dispatch(setAuthStatus(data));
+        dispatch(receiveEnvConfig(data));       
     };
 }
 
@@ -229,7 +219,9 @@ export function updateAuthStatus(token){
         };
         const response = await fetchWithTimeout(dispatch, './authenticate_request', options, 15000);
         const data = await response.json()
-        dispatch(setAuthStatus(data));
+
+        dispatch(setAuthStatus(data))
+        dispatch(setAuthToken(data))
     }
 }
 

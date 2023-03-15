@@ -23,16 +23,14 @@ import {
     selectLoadUrl,
     selectIsConnectionError,
     selectHasFetchedEnvConfig,
-    selectAuthStatus,
-    selectAuthToken,
     selectAuthEnabled,
+    selectIsAuthenticated,
 } from '../../selectors';
 import {
     setOverlayVisibility,
     fetchServerStatus,
     fetchEnvConfig,
     updateAuthStatus,
-    setAuthToken,
 } from '../../actionCreators';
 import blurredBackground from './MATLAB-env-blur.png';
 
@@ -48,9 +46,8 @@ function App() {
     const error = useSelector(selectError);
     const loadUrl = useSelector(selectLoadUrl);
     const isConnectionError = useSelector(selectIsConnectionError);
-    const authStatus = useSelector(selectAuthStatus);
+    const isAuthenticated = useSelector(selectIsAuthenticated)
     const authEnabled = useSelector(selectAuthEnabled);
-    const authToken = useSelector(selectAuthToken);
 
     const toggleOverlayVisible = useCallback(
         () => dispatch(setOverlayVisibility(!overlayVisible)),
@@ -122,7 +119,7 @@ function App() {
     // Periodic fetch server status
     useInterval(() => {
         dispatch(fetchServerStatus());
-    }, fetchStatusPeriod);
+    },  fetchStatusPeriod);
 
     // Load URL
     useEffect(() => {
@@ -132,43 +129,36 @@ function App() {
     }, [loadUrl]);
 
     useEffect(() => {
-        var url_string = document.URL;
-        if(url_string.includes("?mwi_auth_token=")){
+        var url = document.URL;
+        if(url.includes("?mwi_auth_token=")){
             
-            var token = url_string.split("?mwi_auth_token=")[1];
+            var token = url.split("?mwi_auth_token=")[1];
             window.history.replaceState(null, '', '/');
             
-            if(!token){
-                token = null;
+            if(token){
+                dispatch(updateAuthStatus(token))
             }
-            
-            dispatch(updateAuthStatus(token));
-            const data = {authToken: token};
-            dispatch(setAuthToken(data));
-        }
-        else if(!authStatus){ 
-            dispatch(updateAuthStatus(authToken));
-        }
+        } 
     }
-    , [authStatus, authToken, dispatch]);
+    , [dispatch]);
     
     // Display one of:
     // * Confirmation
     // * Help
     // * Error
     // * License gatherer
-    // * Status
-    let overlayContent;
+    // * Status Information
+    let overlayContent;   
+
     if (dialog) {
         // TODO Inline confirmation component build
         overlayContent = dialog;
-    } 
-    
-    // if (tokenAuth is disabled, or we are authorized) AND we don't have license info, then ask for it
-    else if ((!licensingProvided) && hasFetchedServerStatus && (!authEnabled || authStatus)) {
+    }    
+    // Give precendence to token auth over licensing info ie. once after token auth is done, show licensing if not provided.
+    else if((!licensingProvided) && hasFetchedServerStatus && (!authEnabled || isAuthenticated)) {    
         overlayContent = <LicensingGatherer role="licensing" aria-describedby="license-window" />;
     } 
-    // in all other cases, we will either ask for the token, or have the licensing
+    // in all other cases, we will either ask for the token, 
     else if (!dialog) {
         overlayContent = (
             <Information closeHandler={toggleOverlayVisible}>
@@ -191,9 +181,11 @@ function App() {
         ? 'http://localhost:31515/index-jsd-cr.html'
         : './index-jsd-cr.html';
 
-    const matlabJsd = (matlabUp && (!authEnabled || authStatus)) ? (
-        <MatlabJsd url={matlabUrl} />
-    ) : <img style={{objectFit: 'fill'}}src={blurredBackground} alt='Blurred MATLAB environment'/>;
+    let matlabJsd = null;
+    if(matlabUp){
+        matlabJsd = (!authEnabled || isAuthenticated) ? ( <MatlabJsd url={matlabUrl} /> ) :  
+        <img style={{objectFit: 'fill'}}src={blurredBackground} alt='Blurred MATLAB environment'/> 
+    }
 
     const overlayTrigger = overlayVisible ? null : <OverlayTrigger />;
 

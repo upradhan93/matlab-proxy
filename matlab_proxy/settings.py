@@ -88,7 +88,7 @@ def get_dev_settings(config):
         "mwi_proxy_lock_file_name": "mwi_proxy.lock",
         "mw_context_tags": get_mw_context_tags(matlab_proxy.get_default_config_name()),
         "mwi_server_url": None,
-        "mwi_is_mwi_token_auth_enabled": mwi_auth_token != None,
+        "mwi_is_token_auth_enabled": mwi_auth_token != None,
         "mwi_auth_status": False,
         "mwi_auth_token": mwi_auth_token,
         "mwi_auth_token_name": mwi_env.get_env_name_mwi_auth_token().lower(),
@@ -204,7 +204,7 @@ def get(config_name=matlab_proxy.get_default_config_name(), dev=False):
             "mw_context_tags": get_mw_context_tags(config_name),
             # The url where the matlab-proxy server is accessible at
             "mwi_server_url": None,
-            "mwi_is_mwi_token_auth_enabled": mwi_auth_token != None,
+            "mwi_is_token_auth_enabled": mwi_auth_token != None,
             "mwi_auth_status": False,
             "mwi_auth_token": mwi_auth_token,
             "mwi_auth_token_name": mwi_env.get_env_name_mwi_auth_token().lower(),

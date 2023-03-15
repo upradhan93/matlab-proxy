@@ -19,7 +19,7 @@ from matlab_proxy.default_configuration import config
 from matlab_proxy.util import list_servers, mwi
 from matlab_proxy.util.mwi import environment_variables as mwi_env
 from matlab_proxy.util.mwi import token_auth
-from matlab_proxy.util.mwi.exceptions import LicensingError, invalidToken
+from matlab_proxy.util.mwi.exceptions import LicensingError, InvalidTokenError
 
 mimetypes.add_type("font/woff", ".woff")
 mimetypes.add_type("font/woff2", ".woff2")
@@ -120,7 +120,7 @@ async def get_env_config(req):
     """
     state = req.app["state"]
     config = state.settings["env_config"]
-    config["authEnabled"] = state.settings["mwi_is_mwi_token_auth_enabled"]
+    config["authEnabled"] = state.settings["mwi_is_token_auth_enabled"]
     config["authStatus"] = state.settings["mwi_auth_status"]
     return web.json_response(config)
 
@@ -141,23 +141,28 @@ async def authenticate_request(req):
     """API Endpoint to authenticate request to access server
 
     Returns:
-        Response with status = 200 if request is authentic else return status = 401
+        JSONResponse: JSONResponse object containing information about authentication status and error if any.
     """
-    state = req.app["state"]
-    authStatus = False
+    state = req.app["state"]   
     if await token_auth.authenticate_request(req):
         logger.debug("!!!!!! REQUEST IS AUTHORIZED !!!!")
         authStatus = True
-        sendError = None
+        error = None
     else:
         logger.debug("!!!!!! REQUEST IS NOT AUTHORIZED !!!!")
         authStatus = False
-        sendError = marshal_error(invalidToken("Token invalid. Please enter a valid token to authenticate"))
+        error = marshal_error(InvalidTokenError("Token invalid. Please enter a valid token to authenticate"))
+    
+    # If there is an error, state.error is not updated because the client may have set the 
+    # token incorrectly which is not an error raised on the backend.
+    
+    token = await req.text() if not error else ""
     
     return web.json_response(
         {
             "authStatus": authStatus,
-            "error": sendError,
+            "authToken": token,
+            "error": error,
         }
     )
 
@@ -571,7 +576,7 @@ async def get_mwi_auth_token(request):
     """Endpoint to print the MWI token."""
     logger.info("!!!!!! Inside get_mwi_auth_token !!!!!")
     app_settings = request.app["settings"]
-    is_mwi_token_auth_enabled = app_settings["mwi_is_mwi_token_auth_enabled"]
+    is_mwi_token_auth_enabled = app_settings["mwi_is_token_auth_enabled"]
     base_url = app_settings["base_url"]
     mwi_auth_token = app_settings["mwi_auth_token"]
     if is_mwi_token_auth_enabled:

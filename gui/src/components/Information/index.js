@@ -10,10 +10,10 @@ import {
     selectOverlayHidable,
     selectInformationDetails,
     selectAuthEnabled,
-    selectAuthStatus,
+    selectIsAuthenticated,
     selectAuthToken
 } from '../../selectors';
-import { fetchAuthToken, setAuthToken, updateAuthStatus } from '../../actionCreators';
+import { updateAuthStatus } from '../../actionCreators';
 import './Information.css';
 
 function Information({
@@ -27,7 +27,7 @@ function Information({
     const [token, setToken] = useState('');
     const [showToken, setShowToken] = useState(false);
     const authEnabled = useSelector(selectAuthEnabled);
-    const authStatus = useSelector(selectAuthStatus);
+    const isAuthenticated = useSelector(selectIsAuthenticated);
     const authToken = useSelector(selectAuthToken);
     const dispatch = useDispatch();
     const tokenInput = useRef();
@@ -91,11 +91,10 @@ function Information({
         }
     };
 
-    const viewToken = () => {
-        if(authToken === null){
-            dispatch(fetchAuthToken());
+    const viewToken = () => { 
+        if(authToken){
+            setShowToken(true)
         }
-        setShowToken(true);
     }
 
     const toggleVisibility = () => {
@@ -103,9 +102,10 @@ function Information({
     }
 
     const authenticate = async (token) => {
-        dispatch(updateAuthStatus(token));
-        const data = {authToken: token};
-        dispatch(setAuthToken(data));
+        // Update redux state with the token after validation from the backend
+        dispatch(updateAuthStatus(token.trim()));
+
+        // Reset local state variable. 
         setToken('');
     }
 
@@ -156,10 +156,11 @@ function Information({
                                     <>  
                                     <div onClick={()=>{ if(showToken) setShowToken(false)}} 
                                         className={`${showToken ? 'passive-link': ''} flex-item-1`} 
-                                        ><span id={`${showToken ? 'offset' : '' }`}>{authStatus ? showToken ? '(Hide Token)' : 'Authenticated!' : 'Please Authenticate' }</span>
-                                            {(authStatus && !showToken) && <span id='icon-small' className={'alert_icon icon-alert-success flex-item-1'} />}
+                                        ><span id={`${showToken ? 'offset' : '' }`}>{isAuthenticated ? showToken ? '(Hide Token)' : 'Authenticated!' : 'Please Authenticate' }</span>
+                                            {(isAuthenticated && !showToken) && <span id='icon-small' className={'alert_icon icon-alert-success flex-item-1'} />}
                                         </div>
-                                        <>{authStatus ? 
+                                        <>
+                                        {isAuthenticated ? 
                                         <>
                                             <div className='flex-item-2'>
                                                 <span onClick={viewToken} 

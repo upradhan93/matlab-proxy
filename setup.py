@@ -16,7 +16,7 @@ class InstallNpm(install):
         npm_path = which("npm")
         if not npm_path:
             raise Exception(
-                "npm must be installed and on the path during package install!"
+                "npm must be installered and on the path during package install!"
             )
 
         npm_install = [npm_path, "install"]
@@ -29,7 +29,7 @@ class InstallNpm(install):
         os.chdir(gui_path)
 
         # Install dependencies and build GUI files
-        self.spawn(npm_install)
+        # self.spawn(npm_install)
         self.spawn(npm_build)
 
         # Change back to matlab_proxy root folder
@@ -65,7 +65,7 @@ long_description = (HERE / "README.md").read_text()
 
 setuptools.setup(
     name="matlab-proxy",
-    version="0.5.8",
+    version="0.5.9",
     url=config["doc_url"],
     author="The MathWorks, Inc.",
     author_email="cloud@mathworks.com",
