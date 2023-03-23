@@ -92,11 +92,6 @@ function Information({
     };
 
     const viewToken = () => { 
-        // This will be true when the url is accessed without the token in it
-        // in an previously authenticated session
-        // if(authToken === null){
-        //     dispatch(fetchAuthToken());
-        // }
         setShowToken(true);
     }
 
