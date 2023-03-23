@@ -18,7 +18,8 @@ import {
     RECEIVE_ERROR,
     RECEIVE_ENV_CONFIG,
     SET_AUTH_STATUS,
-    SET_AUTH_TOKEN
+    SET_AUTH_TOKEN,
+    REQUEST_AUTH_TOKEN
 } from '../actions';
 import { selectMatlabPending } from '../selectors';
 
@@ -34,6 +35,12 @@ export function setAuthToken(authInfo){
         type: SET_AUTH_TOKEN,
         authInfo
     }
+}
+
+export function requestAuthToken() {
+    return {
+        type: REQUEST_AUTH_TOKEN,
+    };
 }
 
 export function setTriggerPosition(x, y) {
@@ -199,6 +206,7 @@ export function fetchEnvConfig() {
 
 export function fetchAuthToken(){
     return async function (dispatch, getState) {
+        dispatch(requestAuthToken())
         const response = await fetchWithTimeout(dispatch, './mwi_auth_token', {}, 10000);
         const data = await response.json();
         dispatch(setAuthToken(data));

@@ -106,23 +106,27 @@ describe('reducers', () => {
 
   describe('authEnabled', () => {
     it('should return whether token authenticaton is enabled', () => {
+     
+       // default case
+       action = _.cloneDeep(genericAction);
+       expect(reducers.authEnabled(true, action)).toBe(true);
+       expect(reducers.authEnabled(false, action)).toBe(false);
       
       // expect authEnabled to be false
       action = _.cloneDeep(genericAction);
       action.type = actions.RECEIVE_ENV_CONFIG;
+      action['config'] = {
+        "authEnabled" : false
+      }
       expect(reducers.authEnabled(undefined, action)).toBe(false);
 
-      // expect authEnabled to be true
+      // expect authEnabled to be true      
       action = _.cloneDeep(genericAction);
+      action['config'] = {
+        "authEnabled" : true
+      }
       action.type = actions.RECEIVE_ENV_CONFIG;
-      action.authInfo.authEnabled = true;
       expect(reducers.authEnabled(undefined, action)).toBe(true);
-
-      // default case
-      action = _.cloneDeep(genericAction);
-      expect(reducers.authEnabled(true, action)).toBe(true);
-      expect(reducers.authEnabled(false, action)).toBe(false);
-
     });
   });
 
@@ -133,6 +137,7 @@ describe('reducers', () => {
       action = _.cloneDeep(genericAction);
       action.type = actions.SET_AUTH_STATUS;
       action.authInfo.authEnabled = true;
+      action.config = true
       expect(reducers.authStatus(undefined, action)).toBe(false);
 
       // expect authStatus to be true

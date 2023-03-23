@@ -13,7 +13,7 @@ import {
     selectIsAuthenticated,
     selectAuthToken
 } from '../../selectors';
-import { updateAuthStatus } from '../../actionCreators';
+import { fetchAuthToken,  updateAuthStatus } from '../../actionCreators';
 import './Information.css';
 
 function Information({
@@ -92,9 +92,12 @@ function Information({
     };
 
     const viewToken = () => { 
-        if(authToken){
-            setShowToken(true)
-        }
+        // This will be true when the url is accessed without the token in it
+        // in an previously authenticated session
+        // if(authToken === null){
+        //     dispatch(fetchAuthToken());
+        // }
+        setShowToken(true);
     }
 
     const toggleVisibility = () => {

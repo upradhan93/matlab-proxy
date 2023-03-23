@@ -25,6 +25,7 @@ import {
     selectHasFetchedEnvConfig,
     selectAuthEnabled,
     selectIsAuthenticated,
+    selectAuthToken,
 } from '../../selectors';
 import {
     setOverlayVisibility,
@@ -48,6 +49,7 @@ function App() {
     const isConnectionError = useSelector(selectIsConnectionError);
     const isAuthenticated = useSelector(selectIsAuthenticated)
     const authEnabled = useSelector(selectAuthEnabled);
+    const authToken = useSelector(selectAuthToken);
 
     const toggleOverlayVisible = useCallback(
         () => dispatch(setOverlayVisibility(!overlayVisible)),
@@ -183,8 +185,9 @@ function App() {
 
     let matlabJsd = null;
     if(matlabUp){
-        matlabJsd = (!authEnabled || isAuthenticated) ? ( <MatlabJsd url={matlabUrl} /> ) :  
-        <img style={{objectFit: 'fill'}}src={blurredBackground} alt='Blurred MATLAB environment'/> 
+        matlabJsd = (!authEnabled || isAuthenticated) 
+        ? ( <MatlabJsd url={matlabUrl} /> ) 
+        : <img style={{objectFit: 'fill'}}src={blurredBackground} alt='Blurred MATLAB environment'/> 
     }
 
     const overlayTrigger = overlayVisible ? null : <OverlayTrigger />;

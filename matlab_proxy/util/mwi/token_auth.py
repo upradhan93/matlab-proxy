@@ -25,7 +25,7 @@ def decorator_authenticate_access(endpoint):
             the URL or in the session cookie.
         If token is provided and matches the expected secret, then the request is considered authentic,
             and the token is saved into the session cookie.
-        """        
+        """
         logger.debug(f" inside authenticate_access for request:{request}")
         app_settings = request.app["settings"]
         base_url = app_settings["base_url"]
@@ -69,9 +69,9 @@ async def authenticate_request(request):
         base_url = app_settings["base_url"]
 
         # get token if present in URL
-        parsed_url_token = await request.text();
+        parsed_url_token = await request.text()
 
-        if parsed_url_token == '':
+        if parsed_url_token == "":
             logger.debug("No Token found in URL. Checking session cookie...")
 
             # Check to see if there are cookies?

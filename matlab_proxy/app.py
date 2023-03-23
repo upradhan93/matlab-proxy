@@ -122,6 +122,14 @@ async def get_env_config(req):
     config = state.settings["env_config"]
     config["authEnabled"] = state.settings["mwi_is_token_auth_enabled"]
     config["authStatus"] = state.settings["mwi_auth_status"]
+
+    # In a previously authenticated session, if the url is accessed without the token(using session cookie), send the token as well.
+    config["authStatus"], config["authToken"] = (
+        (True, state.settings["mwi_auth_token"])
+        if await token_auth.authenticate_request(req)
+        else (False, None)
+    )
+
     return web.json_response(config)
 
 
@@ -143,7 +151,7 @@ async def authenticate_request(req):
     Returns:
         JSONResponse: JSONResponse object containing information about authentication status and error if any.
     """
-    state = req.app["state"]   
+    state = req.app["state"]
     if await token_auth.authenticate_request(req):
         logger.debug("!!!!!! REQUEST IS AUTHORIZED !!!!")
         authStatus = True
@@ -151,13 +159,17 @@ async def authenticate_request(req):
     else:
         logger.debug("!!!!!! REQUEST IS NOT AUTHORIZED !!!!")
         authStatus = False
-        error = marshal_error(InvalidTokenError("Token invalid. Please enter a valid token to authenticate"))
-    
-    # If there is an error, state.error is not updated because the client may have set the 
+        error = marshal_error(
+            InvalidTokenError(
+                "Token invalid. Please enter a valid token to authenticate"
+            )
+        )
+
+    # If there is an error, state.error is not updated because the client may have set the
     # token incorrectly which is not an error raised on the backend.
-    
+
     token = await req.text() if not error else ""
-    
+
     return web.json_response(
         {
             "authStatus": authStatus,
@@ -165,6 +177,7 @@ async def authenticate_request(req):
             "error": error,
         }
     )
+
 
 async def start_matlab(req):
     """API Endpoint to start MATLAB
@@ -571,22 +584,6 @@ async def cleanup_background_tasks(app):
                 pass
 
 
-@token_auth.decorator_authenticate_access
-async def get_mwi_auth_token(request):
-    """Endpoint to print the MWI token."""
-    logger.info("!!!!!! Inside get_mwi_auth_token !!!!!")
-    app_settings = request.app["settings"]
-    is_mwi_token_auth_enabled = app_settings["mwi_is_token_auth_enabled"]
-    base_url = app_settings["base_url"]
-    mwi_auth_token = app_settings["mwi_auth_token"]
-    if is_mwi_token_auth_enabled:
-        logger.info("get_mwi_auth_token: Responding with token information!!")
-        return web.json_response(
-        {
-            "authToken": mwi_auth_token,
-        })
-
-
 def configure_and_start(app):
     """Configure the site for the app and update app with appropriate values
 
@@ -658,7 +655,7 @@ def create_app(config_name=matlab_proxy.get_default_config_name()):
     app.router.add_route("GET", f"{base_url}/get_status", get_status)
     app.router.add_route(
         "POST", f"{base_url}/authenticate_request", authenticate_request
-    ) 
+    )
     app.router.add_route("GET", f"{base_url}/get_env_config", get_env_config)
     app.router.add_route("PUT", f"{base_url}/start_matlab", start_matlab)
     app.router.add_route("DELETE", f"{base_url}/stop_matlab", stop_matlab)
@@ -671,8 +668,6 @@ def create_app(config_name=matlab_proxy.get_default_config_name()):
     )
     app.router.add_route("*", f"{base_url}/", root_redirect)
     app.router.add_route("*", f"{base_url}", root_redirect)
-    mwi_auth_token_name = app["settings"]["mwi_auth_token_name"]
-    app.router.add_route("GET", f"{base_url}/mwi_auth_token", get_mwi_auth_token)
 
     app.router.add_route("*", f"{base_url}/{{proxyPath:.*}}", matlab_view)
     app.on_cleanup.append(cleanup_background_tasks)

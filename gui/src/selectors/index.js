@@ -1,7 +1,6 @@
 // Copyright (c) 2020-2022 The MathWorks, Inc.
 
 import { createSelector } from 'reselect';
-// import { authEnabled } from '../reducers';
 
 export const selectTutorialHidden = state => state.tutorialHidden;
 export const selectServerStatus = state => state.serverStatus;

@@ -151,7 +151,9 @@ class InvalidTokenError(AppError):
         AppError (Class): Parent Class containing attributes to store
         messages, logs and stacktrace.
     """
+
     pass
+
 
 def log_error(logger, err: Exception):
     """Logs any error to stdout.
