@@ -25,7 +25,6 @@ import {
     selectHasFetchedEnvConfig,
     selectAuthEnabled,
     selectIsAuthenticated,
-    selectAuthToken,
 } from '../../selectors';
 import {
     setOverlayVisibility,
@@ -49,7 +48,6 @@ function App() {
     const isConnectionError = useSelector(selectIsConnectionError);
     const isAuthenticated = useSelector(selectIsAuthenticated)
     const authEnabled = useSelector(selectAuthEnabled);
-    const authToken = useSelector(selectAuthToken);
 
     const toggleOverlayVisible = useCallback(
         () => dispatch(setOverlayVisibility(!overlayVisible)),

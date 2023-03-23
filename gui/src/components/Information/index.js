@@ -13,7 +13,7 @@ import {
     selectIsAuthenticated,
     selectAuthToken
 } from '../../selectors';
-import { fetchAuthToken,  updateAuthStatus } from '../../actionCreators';
+import { updateAuthStatus } from '../../actionCreators';
 import './Information.css';
 
 function Information({

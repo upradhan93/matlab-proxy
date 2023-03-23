@@ -121,7 +121,6 @@ async def get_env_config(req):
     state = req.app["state"]
     config = state.settings["env_config"]
     config["authEnabled"] = state.settings["mwi_is_token_auth_enabled"]
-    config["authStatus"] = state.settings["mwi_auth_status"]
 
     # In a previously authenticated session, if the url is accessed without the token(using session cookie), send the token as well.
     config["authStatus"], config["authToken"] = (
