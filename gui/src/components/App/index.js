@@ -1,6 +1,6 @@
 // Copyright (c) 2020-2022 The MathWorks, Inc.
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useInterval } from 'react-use';
 import './App.css';
@@ -49,6 +49,11 @@ function App() {
     const isAuthenticated = useSelector(selectIsAuthenticated)
     const authEnabled = useSelector(selectAuthEnabled);
 
+    const baseUrl = useMemo(() => {
+        const url = document.URL
+        return url.split(window.location.origin)[1].split('index.html')[0]
+    }, [])
+    
     const toggleOverlayVisible = useCallback(
         () => dispatch(setOverlayVisibility(!overlayVisible)),
         [overlayVisible, dispatch]
@@ -129,15 +134,15 @@ function App() {
     }, [loadUrl]);
 
     useEffect(() => {
-        var url = document.URL;
-        if(url.includes("?mwi_auth_token=")){
-            
-            var token = url.split("?mwi_auth_token=")[1];
-            window.history.replaceState(null, '', '/');
-            
+        const url = document.URL;
+      
+        if(url.includes("?mwi_auth_token=")){            
+            var token = url.split("?mwi_auth_token=")[1];      
+
             if(token){
-                dispatch(updateAuthStatus(token))
+                dispatch(updateAuthStatus(token))                
             }
+            window.history.replaceState(null, '', `${baseUrl}index.html`);
         } 
     }
     , [dispatch]);

@@ -91,7 +91,7 @@ async def authenticate_request(request):
                     logger.debug(f"Actual  : {stored_session_token}")
                     return False
             else:
-                logger.info(f"{token_name} not found in session cookie.")
+                logger.debug(f"{token_name} not found in session cookie.")
                 return False
         else:
             logger.debug(f"Token found in URL with value: {parsed_url_token}")

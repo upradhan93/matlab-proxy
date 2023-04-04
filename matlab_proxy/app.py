@@ -299,7 +299,6 @@ async def termination_integration_delete(req):
         sys.exit(0)
 
 
-# @token_auth.decorator_authenticate_access
 async def root_redirect(request):
     """API Endpoint to return the root index.html file.
 
@@ -308,10 +307,12 @@ async def root_redirect(request):
 
     Returns:
         HTTPResponse: HTTPResponse Object containing the index.html file.
-    """
-    base_url = request.app["settings"]["base_url"]
-    parameters = request.path_qs[1:]
-    return aiohttp.web.HTTPFound(f"{base_url}/index.html{parameters}")
+    """    
+    base_url = request.app["settings"]["base_url"] 
+    query_params = f"?{request.query_string}" if request.query_string else ""
+    response_url =f"{base_url}/index.html{query_params}"
+
+    return aiohttp.web.HTTPFound(response_url)
 
 
 async def static_get(req):
