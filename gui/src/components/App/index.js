@@ -145,7 +145,7 @@ function App() {
             window.history.replaceState(null, '', `${baseUrl}index.html`);
         } 
     }
-    , [dispatch]);
+    , [dispatch, baseUrl]);
     
     // Display one of:
     // * Confirmation
