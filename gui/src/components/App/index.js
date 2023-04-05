@@ -50,7 +50,7 @@ function App() {
     const authEnabled = useSelector(selectAuthEnabled);
 
     const baseUrl = useMemo(() => {
-        const url = document.URL
+        const url = document.URL        
         return url.split(window.location.origin)[1].split('index.html')[0]
     }, [])
     
@@ -127,7 +127,7 @@ function App() {
     },  fetchStatusPeriod);
 
     // Load URL
-    useEffect(() => {
+    useEffect(() => {      
         if (loadUrl !== null) {
             window.location.href = loadUrl;
         }

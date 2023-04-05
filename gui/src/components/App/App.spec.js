@@ -1,7 +1,7 @@
 // Copyright (c) 2020-2022 The MathWorks, Inc.
 
 import React from 'react';
-import { render, fireEvent, within } from '../../test/utils/react-test';
+import { render, fireEvent } from '../../test/utils/react-test';
 import App from './index';
 import OverlayTrigger from '../OverlayTrigger';
 
@@ -229,13 +229,8 @@ describe('App Component', () => {
   });
 
   it('should set the window location from state', () => {
-    initialState.loadUrl = 'http://localhost.com:5555';
-    const hrefMock = jest.fn();
-    delete window.location;
-
-    window.location = { href: hrefMock }
-    const { debug } = render(<App />, { initialState: initialState });
-
+    initialState.loadUrl =  'http://localhost.com:5555/matlab';
+    render(<App />, { initialState: initialState });
     expect(window.location.href).toMatch('localhost');
   });
 });

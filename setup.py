@@ -29,7 +29,7 @@ class InstallNpm(install):
         os.chdir(gui_path)
 
         # Install dependencies and build GUI files
-        # self.spawn(npm_install)
+        self.spawn(npm_install)
         self.spawn(npm_build)
 
         # Change back to matlab_proxy root folder
@@ -94,9 +94,7 @@ setuptools.setup(
     python_requires="~=3.7",
     install_requires=INSTALL_REQUIRES,
     tests_require=TESTS_REQUIRES,
-    extras_require={
-        "dev": ["aiohttp-devtools", "black", "ruamel.yaml"] + TESTS_REQUIRES
-    },
+    extras_require={"dev": ["aiohttp-devtools", "black"] + TESTS_REQUIRES},
     # The entrypoint will be used by multiple packages that have this package as an installation
     # dependency. These packages can use the same API, get_entrypoint_name(), to make their configs discoverable
     entry_points={

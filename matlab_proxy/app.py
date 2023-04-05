@@ -307,10 +307,10 @@ async def root_redirect(request):
 
     Returns:
         HTTPResponse: HTTPResponse Object containing the index.html file.
-    """    
-    base_url = request.app["settings"]["base_url"] 
+    """
+    base_url = request.app["settings"]["base_url"]
     query_params = f"?{request.query_string}" if request.query_string else ""
-    response_url =f"{base_url}/index.html{query_params}"
+    response_url = f"{base_url}/index.html{query_params}"
 
     return aiohttp.web.HTTPFound(response_url)
 
