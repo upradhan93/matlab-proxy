@@ -6,7 +6,7 @@ import { useSelector } from 'react-redux';
 import ReactTooltip from 'react-tooltip';
 import {
     selectSubmittingServerStatus,
-    selectLicensingIsMhlm,
+    selectLicensingInfo,    
     selectLicensingProvided,
     selectMatlabRunning,
     selectMatlabStarting,
@@ -35,7 +35,6 @@ function Controls({
 }) {
     const submitting = useSelector(selectSubmittingServerStatus);
     const licensed = useSelector(selectLicensingProvided);
-    const mhlmLicense = useSelector(selectLicensingIsMhlm);
     const matlabRunning = useSelector(selectMatlabRunning);
     const matlabStarting = useSelector(selectMatlabStarting);
     const matlabStopping = useSelector(selectMatlabStopping);
@@ -43,7 +42,7 @@ function Controls({
     const error = useSelector(selectError);
     const authEnabled = useSelector(selectAuthEnabled);
     const isAuthenticated = useSelector(selectIsAuthenticated);
-    //     const canTerminateIntegration = !submitting;
+    const licensingInfo = useSelector(selectLicensingInfo);
     const canResetLicensing = licensed && !submitting;
 
     const feedbackBody = useMemo(
@@ -54,6 +53,41 @@ MATLAB version: ${matlabVersion}%0D%0A`,
         [matlabVersion]
     );
 
+    let licensingData, confirmationMessage;
+    switch (licensingInfo?.type) {
+        case "mhlm":
+            licensingData =  {
+                label: 'Sign Out',
+                dataTip : 'SignOut',
+            };
+            confirmationMessage = `Are you sure you want to sign out of MATLAB?`
+            break;
+        case "nlm":
+            licensingData =  {
+                label: 'Remove License Server Address',
+                dataTip : 'Remove the network license manager server address',
+            };  
+            confirmationMessage = `Are you sure you want to remove the network license manager server address?`
+            break;
+
+        case "existing_license":
+            licensingData =  {
+                label: 'Stop using Existing License',
+                dataTip : 'Stop using existing license',
+            };
+            confirmationMessage = `Are you sure you want to stop using an Existing License?`
+            break;
+        
+        default:
+            licensingData =  {
+                label: 'None',
+                dataTip : 'None',
+            }; 
+            confirmationMessage = null  
+        }
+
+
+
     const Confirmations = {
         START: {
             type: 'confirmation',
@@ -62,17 +96,17 @@ MATLAB version: ${matlabVersion}%0D%0A`,
         },
         STOP: {
             type: 'confirmation',
-            message: 'Are you sure you want to stop MATLAB?',
+            message: confirmationMessage,
             callback: fetchStopMatlab
         },
         TERMINATE: {
             type: 'confirmation',
-            message: 'Are you sure you want to terminate MATLAB and the backing matlab-proxy server?',
+            message: confirmationMessage,
             callback: fetchTerminateIntegration
         },
         SIGN_OUT: {
             type: 'confirmation',
-            message: `Are you sure you want to ${mhlmLicense ? 'sign out of MATLAB' : 'unset the connection string'}?`,
+            message: confirmationMessage,
             callback: fetchUnsetLicensing
         },
         HELP: {
@@ -91,7 +125,7 @@ MATLAB version: ${matlabVersion}%0D%0A`,
             return cls + 'btn_color_blue';
         }
         return cls + 'btn_color_mediumgray';
-    };
+    };    
 
     return (
         <div id="controls" className="labels-on-top">
@@ -126,10 +160,10 @@ MATLAB version: ${matlabVersion}%0D%0A`,
                 onClick={() => callback(Confirmations.SIGN_OUT)}
                 disabled={!canResetLicensing || (authEnabled && !isAuthenticated)}
                 data-for="control-button-tooltip"
-                data-tip={mhlmLicense ? 'Sign out' : 'Unset the network license manager server address'}
+                data-tip= {licensingData.dataTip}
             >
                 <span className='icon-custom-sign-out'></span>
-                <span className='btn-label'>{mhlmLicense ? 'Sign Out' : 'Unset License Server Address'}</span>
+                <span className='btn-label'>{licensingData.label}</span>
             </button>
             {/* <button
                 id="terminateIntegration"

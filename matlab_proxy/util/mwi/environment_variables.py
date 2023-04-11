@@ -135,3 +135,8 @@ def get_env_name_enable_mwi_auth_token():
 def get_env_name_mwi_auth_token():
     """User specified token for use with Token-Based Authentication"""
     return "MWI_AUTH_TOKEN"
+
+
+def get_env_name_mwi_use_existing_license():
+    """Returns the environment variable name used to instruct matlab-proxy to use an existing license. Usually used by already activated MATLAB installations."""
+    return "MWI_USE_EXISTING_LICENSE"
