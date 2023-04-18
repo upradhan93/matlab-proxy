@@ -888,10 +888,12 @@ class AppState:
                                 # Set the error and stop matlab.
                                 if (
                                     self.licensing["type"] == "existing_license"
-                                    and len(self.logs) == 0
+                                    and len(self.logs['matlab']) == 0
                                 ):
                                     await __force_stop_matlab()
                                     # Breaking out of the loop will end this task as matlab-proxy was unable to launch MATLAB successfully even after embedded_connector_max_startup_duration
+                                    self.error = MatlabError(licensing_error)
+                                    logger.error(f"{this_task}: {licensing_error}")
                                     break
 
                                 else:
