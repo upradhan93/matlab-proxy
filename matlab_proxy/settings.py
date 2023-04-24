@@ -92,9 +92,7 @@ def get_dev_settings(config):
         "mwi_auth_status": False,
         "mwi_auth_token": mwi_auth_token,
         "mwi_auth_token_name": mwi_env.get_env_name_mwi_auth_token().lower(),
-        "mwi_use_existing_license": os.getenv(
-            mwi_env.get_env_name_mwi_use_existing_license(), False
-        ),
+        "mwi_use_existing_license": mwi.validators.validate_use_existing_licensing(os.getenv(mwi_env.get_env_name_mwi_use_existing_license(), ""))
     }
 
 
@@ -216,9 +214,7 @@ def get(config_name=matlab_proxy.get_default_config_name(), dev=False):
             "mwi_auth_status": False,
             "mwi_auth_token": mwi_auth_token,
             "mwi_auth_token_name": mwi_env.get_env_name_mwi_auth_token().lower(),
-            "mwi_use_existing_license": os.getenv(
-                mwi_env.get_env_name_mwi_use_existing_license(), False
-            ),
+            "mwi_use_existing_license": mwi.validators.validate_use_existing_licensing(os.getenv(mwi_env.get_env_name_mwi_use_existing_license(), ""))
         }
 
 

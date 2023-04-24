@@ -234,37 +234,28 @@ class AppState:
         xvfb = self.processes["xvfb"]
 
         # MATLAB can either be "up", "starting" or "down" state
-        matlab_status = "down"
 
-        if system.is_linux():
-            if xvfb is None:
-                return matlab_status
+        if system.is_linux():            
+            if xvfb is None or xvfb.returncode is not None:
+                debug_statement = "Xvfb has not started" if xvfb is None else f"Xvfb exited with returncode:{xvfb.returncode}"
+                logger.debug(debug_statement)
+                return "down"
 
-            if xvfb and xvfb.returncode is not None:
-                logger.debug(f"Xvfb process exited with returncode:{xvfb.returncode}")
-                return matlab_status
-
-            if matlab is None:
-                return matlab_status
-
-            if matlab and matlab.returncode is not None:
-                logger.debug(
-                    f"MATLAB process exited with returncode:{matlab.returncode}"
-                )
-                return matlab_status
+            if matlab is None or matlab.returncode is not None:
+                debug_statement = "MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}"
+                logger.debug(debug_statement)
+                return "down"
 
         elif system.is_mac():
-            if matlab is None:
-                return matlab_status
-
-            if matlab and matlab.returncode is not None:
-                logger.debug(
-                    f"MATLAB process exited with returncode:{matlab.returncode}"
-                )
-                return matlab_status
+            if matlab is None or matlab.returncode is not None:
+                debug_statement = "MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}"
+                logger.debug(debug_statement)
+                return "down"
+        
+        # For windows platform
         else:
             if matlab is None or not matlab.is_running():
-                return matlab_status
+                return "down"
 
         # If execution reaches here, it implies that:
         # 1) MATLAB process has started.
@@ -838,8 +829,11 @@ class AppState:
         self.processes["matlab"] = matlab
 
         async def track_embedded_connector_state():
-            logger.debug("track_embedded_connector_state() task: Starting task...")
+            """track_embedded_connector_state is an asyncio task to track the status of MATLAB Embedded Connector.
+            This task will start and stop with the MATLAB process.
+            """
             this_task = "track_embedded_connector_state() task"
+            logger.debug(f"{this_task}: Starting task...")
 
             while True:
                 if self.embedded_connector_state == "up":
@@ -872,6 +866,8 @@ class AppState:
                             licensing_error = "Unable to use Existing License to launch MATLAB. Please check if you can successfully launch MATLAB outside of matlab-proxy"
 
                             async def __force_stop_matlab():
+                                """A private method to update self.error and force stop matlab 
+                                """
                                 self.error = LicensingError(licensing_error)
                                 logger.error(f"{this_task}: {licensing_error}")
 
@@ -921,6 +917,9 @@ class AppState:
                             await asyncio.sleep(1)
 
         async def matlab_stderr_reader_posix():
+            """matlab_stderr_reader_posix is an asyncio task which reads the stderr pipe of the MATLAB process, parses it 
+            and updates state variables accordingly.
+            """
             if system.is_posix():
                 matlab = self.processes["matlab"]
                 logger.debug("matlab_stderr_reader_posix() task: Starting task...")

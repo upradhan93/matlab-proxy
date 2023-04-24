@@ -70,7 +70,7 @@ async def get_state(mwi_server_url):
         resp = await send_request(url=url, data=data, method="POST")
 
         # Additional assert statements to catch any changes in response from embedded connector
-
+        # Tested from R2020b to R2023a
         assert (
             "messages" in resp
         ), '"messages" key missing in response from embedded connector'

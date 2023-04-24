@@ -53,21 +53,21 @@ MATLAB version: ${matlabVersion}%0D%0A`,
         [matlabVersion]
     );
 
-    let licensingData, confirmationMessage;
+    let licensingData, licensingConfirmationMessage;
     switch (licensingInfo?.type) {
         case "mhlm":
             licensingData =  {
                 label: 'Sign Out',
-                dataTip : 'SignOut',
+                dataTip : 'Sign out of MATLAB',
             };
-            confirmationMessage = `Are you sure you want to sign out of MATLAB?`
+            licensingConfirmationMessage = `Are you sure you want to sign out of MATLAB?`
             break;
         case "nlm":
             licensingData =  {
                 label: 'Remove License Server Address',
                 dataTip : 'Remove the network license manager server address',
             };  
-            confirmationMessage = `Are you sure you want to remove the network license manager server address?`
+            licensingConfirmationMessage = `Are you sure you want to remove the network license manager server address?`
             break;
 
         case "existing_license":
@@ -75,7 +75,7 @@ MATLAB version: ${matlabVersion}%0D%0A`,
                 label: 'Stop using Existing License',
                 dataTip : 'Stop using existing license',
             };
-            confirmationMessage = `Are you sure you want to stop using an Existing License?`
+            licensingConfirmationMessage = `Are you sure you want to stop using an Existing License?`
             break;
         
         default:
@@ -83,7 +83,7 @@ MATLAB version: ${matlabVersion}%0D%0A`,
                 label: 'None',
                 dataTip : 'None',
             }; 
-            confirmationMessage = null  
+            licensingConfirmationMessage = null  
         }
 
 
@@ -96,17 +96,17 @@ MATLAB version: ${matlabVersion}%0D%0A`,
         },
         STOP: {
             type: 'confirmation',
-            message: confirmationMessage,
+            message: 'Are you sure you want to stop MATLAB?',
             callback: fetchStopMatlab
         },
         TERMINATE: {
             type: 'confirmation',
-            message: confirmationMessage,
+            message: 'Are you sure you want to terminate MATLAB and the backing matlab-proxy server?',
             callback: fetchTerminateIntegration
         },
         SIGN_OUT: {
             type: 'confirmation',
-            message: confirmationMessage,
+            message: licensingConfirmationMessage,
             callback: fetchUnsetLicensing
         },
         HELP: {
