@@ -22,7 +22,7 @@ return (
             <form onSubmit={submitForm}>
                 <div className='form-group'>                     
                     <p>
-                        <b>Note</b>: Choose this option if the MATLAB on your path is already activated and can be launched directly from your local machine without providing additional licensing information
+                        <b>Note</b>: Choose this option if you already activated MATLAB, so you can run MATLAB on your local machine without providing additional licensing information.
                     </p>
                     <br/>
                 <input type="submit" id="submit" value="Start MATLAB" className="btn btn_color_blue" />

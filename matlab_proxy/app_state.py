@@ -234,6 +234,8 @@ class AppState:
         xvfb = self.processes["xvfb"]
 
         # MATLAB can either be "up", "starting" or "down" state
+        # TODO: Test in windows for matlab.returncode
+        debug_statement = "MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}"
 
         if system.is_linux():            
             if xvfb is None or xvfb.returncode is not None:
@@ -242,19 +244,18 @@ class AppState:
                 return "down"
 
             if matlab is None or matlab.returncode is not None:
-                debug_statement = "MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}"
                 logger.debug(debug_statement)
                 return "down"
 
         elif system.is_mac():
             if matlab is None or matlab.returncode is not None:
-                debug_statement = "MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}"
                 logger.debug(debug_statement)
                 return "down"
         
         # For windows platform
         else:
             if matlab is None or not matlab.is_running():
+                logger.debug(debug_statement)
                 return "down"
 
         # If execution reaches here, it implies that:

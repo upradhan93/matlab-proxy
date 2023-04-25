@@ -274,7 +274,4 @@ def validate_use_existing_licensing(use_existing_license):
     Returns:
         bool: if MWI_USE_EXISTING_LICENSE is set to true 
     """
-    if not use_existing_license:
-        return False 
-    
-    return use_existing_license.lower() == "true"
+    return False if not use_existing_license else  use_existing_license.lower() == "true"
