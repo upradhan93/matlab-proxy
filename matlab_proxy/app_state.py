@@ -234,28 +234,24 @@ class AppState:
         xvfb = self.processes["xvfb"]
 
         # MATLAB can either be "up", "starting" or "down" state
-        # TODO: Test in windows for matlab.returncode
-        debug_statement = "MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}"
-
-        if system.is_linux():            
+        if system.is_linux():    
             if xvfb is None or xvfb.returncode is not None:
-                debug_statement = "Xvfb has not started" if xvfb is None else f"Xvfb exited with returncode:{xvfb.returncode}"
-                logger.debug(debug_statement)
+                logger.debug("Xvfb has not started" if xvfb is None else f"Xvfb exited with returncode:{xvfb.returncode}")
                 return "down"
 
             if matlab is None or matlab.returncode is not None:
-                logger.debug(debug_statement)
+                logger.debug("MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}")
                 return "down"
 
         elif system.is_mac():
             if matlab is None or matlab.returncode is not None:
-                logger.debug(debug_statement)
+                logger.debug("MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}")
                 return "down"
         
         # For windows platform
         else:
             if matlab is None or not matlab.is_running():
-                logger.debug(debug_statement)
+                logger.debug("MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}")
                 return "down"
 
         # If execution reaches here, it implies that:
@@ -272,11 +268,13 @@ class AppState:
             "down",
         ], "Invalid embedded connector state returned"
 
-        if embedded_connector_status == "down":
+        self.embedded_connector_state = embedded_connector_status
+
+        if self.embedded_connector_state == "down":
             # So, even if the embedded connector's status is 'down', we'll
             # return matlab status as 'starting', because the MATLAB process itself has been created
             # and matlab-proxy is waiting for the embedded connector to start serving content.
-            matlab_status = "starting"
+            matlab_status = "starting"            
 
             # Update time stamp when MATLAB state is "starting".
             if not self.embedded_connector_start_time:
@@ -286,7 +284,7 @@ class AppState:
         else:
             matlab_status = "up"
 
-        self.embedded_connector_state = embedded_connector_status
+       
         return matlab_status
 
     async def set_licensing_nlm(self, conn_str):
