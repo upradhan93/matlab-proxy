@@ -175,7 +175,7 @@ class AppState:
                 logger.debug("Found cached licensing information...")
                 try:
                     # Load can throw if the file is empty for some reason.
-                    licensing = json.loads(f.read())                    
+                    licensing = json.loads(f.read())
                     if licensing["type"] == "nlm":
                         # Note: Only NLM settings entered in browser were cached.
                         self.licensing = {
@@ -230,28 +230,44 @@ class AppState:
             String: Status of MATLAB. Returns either up, down or starting.
         """
 
-        # MATLAB can either be "up", "starting" or "down" state depending upon Xvfb, MATLAB and the Embedded Connector 
+        # MATLAB can either be "up", "starting" or "down" state depending upon Xvfb, MATLAB and the Embedded Connector
         matlab = self.processes["matlab"]
         xvfb = self.processes["xvfb"]
 
-        if system.is_linux():    
+        if system.is_linux():
             if xvfb is None or xvfb.returncode is not None:
-                logger.debug("Xvfb has not started" if xvfb is None else f"Xvfb exited with returncode:{xvfb.returncode}")
+                logger.debug(
+                    "Xvfb has not started"
+                    if xvfb is None
+                    else f"Xvfb exited with returncode:{xvfb.returncode}"
+                )
                 return "down"
 
             if matlab is None or matlab.returncode is not None:
-                logger.debug("MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}")
+                logger.debug(
+                    "MATLAB has not started"
+                    if matlab is None
+                    else f"MATLAB exited with returncode:{matlab.returncode}"
+                )
                 return "down"
 
         elif system.is_mac():
             if matlab is None or matlab.returncode is not None:
-                logger.debug("MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}")
+                logger.debug(
+                    "MATLAB has not started"
+                    if matlab is None
+                    else f"MATLAB exited with returncode:{matlab.returncode}"
+                )
                 return "down"
-        
+
         # For windows platform
         else:
             if matlab is None or not matlab.is_running():
-                logger.debug("MATLAB has not started" if matlab is None else f"MATLAB exited with returncode:{matlab.returncode}")
+                logger.debug(
+                    "MATLAB has not started"
+                    if matlab is None
+                    else f"MATLAB exited with returncode:{matlab.returncode}"
+                )
                 return "down"
 
         # If execution reaches here, it implies that:
@@ -274,7 +290,7 @@ class AppState:
             # So, even if the embedded connector's status is 'down', we'll
             # return matlab status as 'starting', because the MATLAB process itself has been created
             # and matlab-proxy is waiting for the embedded connector to start serving content.
-            matlab_status = "starting"            
+            matlab_status = "starting"
 
             # Update time stamp when MATLAB state is "starting".
             if not self.embedded_connector_start_time:
@@ -284,7 +300,6 @@ class AppState:
         else:
             matlab_status = "up"
 
-       
         return matlab_status
 
     async def set_licensing_nlm(self, conn_str):
@@ -865,8 +880,7 @@ class AppState:
                             licensing_error = "Unable to use Existing License to launch MATLAB. Please check if you can successfully launch MATLAB outside of matlab-proxy"
 
                             async def __force_stop_matlab():
-                                """A private method to update self.error and force stop matlab 
-                                """
+                                """A private method to update self.error and force stop matlab"""
                                 self.error = LicensingError(licensing_error)
                                 logger.error(f"{this_task}: {licensing_error}")
 
@@ -883,7 +897,7 @@ class AppState:
                                 # Set the error and stop matlab.
                                 if (
                                     self.licensing["type"] == "existing_license"
-                                    and len(self.logs['matlab']) == 0
+                                    and len(self.logs["matlab"]) == 0
                                 ):
                                     await __force_stop_matlab()
                                     # Breaking out of the loop will end this task as matlab-proxy was unable to launch MATLAB successfully even after embedded_connector_max_startup_duration
@@ -916,7 +930,7 @@ class AppState:
                             await asyncio.sleep(1)
 
         async def matlab_stderr_reader_posix():
-            """matlab_stderr_reader_posix is an asyncio task which reads the stderr pipe of the MATLAB process, parses it 
+            """matlab_stderr_reader_posix is an asyncio task which reads the stderr pipe of the MATLAB process, parses it
             and updates state variables accordingly.
             """
             if system.is_posix():

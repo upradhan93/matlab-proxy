@@ -265,6 +265,7 @@ def validate_ssl_key_and_cert_file(a_ssl_key_file, a_ssl_cert_file):
     )
     return a_ssl_key_file, a_ssl_cert_file
 
+
 def validate_use_existing_licensing(use_existing_license):
     """Returns true if use_existing_license is true
 
@@ -272,6 +273,6 @@ def validate_use_existing_licensing(use_existing_license):
         use_existing_license (str): value from the environment variable MWI_USE_EXISTING_LICENSE
 
     Returns:
-        bool: if use_existing_license is set to true 
-    """    
+        bool: if use_existing_license is set to true
+    """
     return True if use_existing_license.casefold() == "true" else False

@@ -50,11 +50,11 @@ def marshal_licensing_info(licensing_info):
     """
     if licensing_info is None:
         return None
-    
+
     licensing_type = licensing_info.get("type")
-    
+
     if licensing_type is None:
-        return None    
+        return None
 
     if licensing_type == "mhlm":
         return {
