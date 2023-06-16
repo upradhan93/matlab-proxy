@@ -175,7 +175,7 @@ class AppState:
                 logger.debug("Found cached licensing information...")
                 try:
                     # Load can throw if the file is empty for some reason.
-                    licensing = json.loads(f.read())
+                    licensing = json.loads(f.read())                    
                     if licensing["type"] == "nlm":
                         # Note: Only NLM settings entered in browser were cached.
                         self.licensing = {
@@ -230,10 +230,10 @@ class AppState:
             String: Status of MATLAB. Returns either up, down or starting.
         """
 
+        # MATLAB can either be "up", "starting" or "down" state depending upon Xvfb, MATLAB and the Embedded Connector 
         matlab = self.processes["matlab"]
         xvfb = self.processes["xvfb"]
 
-        # MATLAB can either be "up", "starting" or "down" state
         if system.is_linux():    
             if xvfb is None or xvfb.returncode is not None:
                 logger.debug("Xvfb has not started" if xvfb is None else f"Xvfb exited with returncode:{xvfb.returncode}")
@@ -722,7 +722,7 @@ class AppState:
 
             _, slave = pty.openpty()
 
-            # In posix systems, 'matlab' variable is of type asyncio.subprocess.Process()
+            # In POSIX systems, the 'matlab' variable is of type asyncio.subprocess.Process()
             matlab = await asyncio.create_subprocess_exec(
                 *self.settings["matlab_cmd"],
                 env=matlab_env,
@@ -734,7 +734,7 @@ class AppState:
 
         else:
             try:
-                # In Windows systems, 'matlab' variable is of type psutil.Process()
+                # In WINDOWS systems, the 'matlab' variable is of type psutil.Process()
                 matlab = await windows.start_matlab(
                     self.settings["matlab_cmd"], matlab_env
                 )
@@ -874,7 +874,7 @@ class AppState:
                                 # send a HTTP request to the Embedded Connector (which is already "down")
                                 await self.stop_matlab(force_quit=True)
 
-                            # In Windows systems, errors are raised as UI windows and cannot be captured programmatically.
+                            # In WINDOWS systems, errors are raised as UI windows and cannot be captured programmatically.
                             # So, raise a generic error wherever appropriate
                             if system.is_windows():
                                 generic_error = f"MATLAB has been in a starting state for more than {int(self.embedded_connector_max_startup_duration)} seconds. Use Windows Remote Desktop to check for any errors"

@@ -521,7 +521,7 @@ async def test_set_licensing_info_put_mhlm(test_server):
 async def test_set_licensing_info_put_existing_license(test_server):
     """Test to check endpoint : "/set_licensing_info"
 
-    Test which sends HTTP PUT request with LOCAL licensing information.
+    Test which sends HTTP PUT request with local licensing information.
     Args:
         test_server (aiohttp_client): A aiohttp_client server to send HTTP GET request.
     """

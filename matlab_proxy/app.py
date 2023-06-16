@@ -50,20 +50,25 @@ def marshal_licensing_info(licensing_info):
     """
     if licensing_info is None:
         return None
+    
+    licensing_type = licensing_info.get("type")
+    
+    if licensing_type is None:
+        return None    
 
-    if licensing_info["type"] == "mhlm":
+    if licensing_type == "mhlm":
         return {
             "type": "mhlm",
             "emailAddress": licensing_info["email_addr"],
             "entitlements": licensing_info.get("entitlements", []),
             "entitlementId": licensing_info.get("entitlement_id", None),
         }
-    elif licensing_info["type"] == "nlm":
+    elif licensing_type == "nlm":
         return {
             "type": "nlm",
             "connectionString": licensing_info["conn_str"],
         }
-    elif licensing_info["type"] == "existing_license":
+    elif licensing_type == "existing_license":
         return {"type": "existing_license"}
 
 

@@ -272,6 +272,6 @@ def validate_use_existing_licensing(use_existing_license):
         use_existing_license (str): value from the environment variable MWI_USE_EXISTING_LICENSE
 
     Returns:
-        bool: if MWI_USE_EXISTING_LICENSE is set to true 
-    """
-    return False if not use_existing_license else  use_existing_license.lower() == "true"
+        bool: if use_existing_license is set to true 
+    """    
+    return True if use_existing_license.casefold() == "true" else False
