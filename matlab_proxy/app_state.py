@@ -266,7 +266,7 @@ class AppState:
                 logger.debug(
                     "MATLAB has not started"
                     if matlab is None
-                    else f"MATLAB exited with returncode:{matlab.returncode}"
+                    else f"MATLAB exited with returncode:{matlab.wait()}"
                 )
                 return "down"
 
@@ -869,7 +869,6 @@ class AppState:
                     else:
                         # Compute the time difference
                         time_diff = time.time() - self.embedded_connector_start_time
-
                         if time_diff > self.embedded_connector_max_startup_duration:
                             # MATLAB has been up but the Embedded Connector is not responding for more than embedded_connector_max_startup_duration seconds.
                             # Create/raise a generic error
@@ -901,12 +900,10 @@ class AppState:
                                 ):
                                     await __force_stop_matlab()
                                     # Breaking out of the loop will end this task as matlab-proxy was unable to launch MATLAB successfully even after embedded_connector_max_startup_duration
-                                    self.error = MatlabError(licensing_error)
-                                    logger.error(f"{this_task}: {licensing_error}")
                                     break
 
                                 else:
-                                    # Do not stop the MATLAB process or break from the loop (the error maybe transient) as the user needs to RDP and check the error from the MATLAB command window.
+                                    # Do not stop the MATLAB process or break from the loop (the error type is unknown)
                                     self.error = MatlabError(generic_error)
                                     logger.error(f"{this_task}: {generic_error}")
                                     await asyncio.sleep(5)
@@ -1097,33 +1094,40 @@ class AppState:
                             pass
 
             else:
+                # In a windows system
                 if not system.is_posix() and matlab.is_running():
-                    # If in a windows system, send request to embedded connector
-                    # to stop matlab.
-                    logger.debug("Sending HTTP request to stop the MATLAB process...")
-
-                    try:
-                        # Send HTTP request
-                        await self.__send_stop_request_to_matlab()
-
-                        # Wait for matlab to shutdown gracefully
+                    if force_quit:
+                        matlab.terminate()
                         matlab.wait()
-                        assert (
-                            not matlab.is_running()
-                        ), "Failed to gracefully shutdown MATLAB via the embedded connector"
 
-                        logger.debug("Stopped the MATLAB process gracefully")
-
-                    except Exception as err:
-                        log_error(logger, err)
-                        logger.info(
-                            "Failed to stop MATLAB gracefully. Attempting to terminate the process."
+                    else:
+                        # send request to embedded connector to stop matlab.
+                        logger.debug(
+                            "Sending HTTP request to stop the MATLAB process..."
                         )
+
                         try:
-                            matlab.terminate()
+                            # Send HTTP request
+                            await self.__send_stop_request_to_matlab()
+
+                            # Wait for matlab to shutdown gracefully
                             matlab.wait()
-                        except:
-                            pass
+                            assert (
+                                not matlab.is_running()
+                            ), "Failed to gracefully shutdown MATLAB via the embedded connector"
+
+                            logger.debug("Stopped the MATLAB process gracefully")
+
+                        except Exception as err:
+                            log_error(logger, err)
+                            logger.info(
+                                "Failed to stop MATLAB gracefully. Attempting to terminate the process."
+                            )
+                            try:
+                                matlab.terminate()
+                                matlab.wait()
+                            except:
+                                pass
 
         logger.info("Stopped (any running)MATLAB process.")
 
