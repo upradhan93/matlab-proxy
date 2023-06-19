@@ -3,7 +3,6 @@
 import React from 'react';
 import { render, fireEvent } from '../../test/utils/react-test';
 import App from './index';
-import OverlayTrigger from '../OverlayTrigger';
 
 describe('App Component', () => {
   let initialState;
@@ -229,8 +228,22 @@ describe('App Component', () => {
   });
 
   it('should set the window location from state', () => {
-    initialState.loadUrl =  'http://localhost.com:5555/matlab';
-    render(<App />, { initialState: initialState });
-    expect(window.location.href).toMatch('localhost');
+    const url = 'http://localhost.com:5555/matlab/index.html'  
+    
+    // define new complete url for document.URL for baseUrl variable to evaluate correctly
+    delete document.URL;
+    document = {URL: url}
+
+    // Delete and redefine 'origin' and 'href' properties as they are read-only. 
+    delete window.location;
+    window.location = {      
+      origin: "/",
+      href : "http://127.0.0.1/"
+    }
+
+    initialState.loadUrl =  url;
+    render(<App />, { initialState: initialState });  
+    // Check if href has been set to loadUrl by the useEffect  
+    expect(window.location.href).toBe(url);
   });
 });
