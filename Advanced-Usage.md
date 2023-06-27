@@ -29,6 +29,7 @@ The following table describes all the environment variables that you can set to 
 | **MWI_ENABLE_TOKEN_AUTH** | string | `"True"` | When set to `True`, matlab-proxy will require users to provide the security token to access the proxy. <br />The default value is `False` . See [Token-Based Authentication](./SECURITY.md#token-based-authentication) for more information.|
 | **MWI_AUTH_TOKEN** | string (optional) | `"AnyURLSafeToken"` | Optionally, provide a custom `token` for use with `MWI_ENABLE_TOKEN_AUTH`. A token can safely contain any combination of alpha numeric text along with the following permitted characters: `- .  _  ~`.<br />When absent matlab-proxy will generate a random URL safe token. |
 | **MWI_USE_EXISTING_LICENSE** | string (optional) | `"True"` | When set to True, matlab-proxy will not ask you for additional licensing information and will try to launch an already activated MATLAB on your system PATH.
+| **MWI_CUSTOM_MATLAB_ROOT** | string (optional) | `"/path/to/matlab/root/"` | Optionally, provide a custom path to MATLAB root  |
 
 
 ## Custom HTTP Headers 

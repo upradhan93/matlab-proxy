@@ -2,7 +2,8 @@
 import argparse
 import os
 import socket
-import sys
+
+from pathlib import Path
 
 import matlab_proxy
 from matlab_proxy.util import mwi, system
@@ -241,3 +242,16 @@ def get_access_url(app):
         url = f"{access_protocol}://{host_interface}:{port}{base_url}"
 
     return url
+
+
+def is_valid_path(path: Path):
+    """Returns true if path supplied is a valid path to a file or directory
+
+    Args:
+        path (pathlib.Path): pathlib.Path object of a file or directory
+
+    Returns:
+        bool: True if a valid path is supplied else False
+    """
+    path = Path(path)
+    return path.is_dir() or path.is_file()

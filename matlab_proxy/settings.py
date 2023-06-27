@@ -11,6 +11,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import matlab_proxy
+from matlab_proxy.constants import VERSION_INFO_FILE_NAME
+
 from matlab_proxy.util import mwi, system
 from matlab_proxy.util.mwi import environment_variables as mwi_env
 from matlab_proxy.util.mwi import token_auth
@@ -18,21 +20,47 @@ from matlab_proxy.util.mwi import token_auth
 logger = mwi.logger.get()
 
 
-def get_matlab_path():
+def get_matlab_root_path():
+    """Returns the path to MATLAB root.
+
+    Returns:
+        pathlib.Path: pathlib.Path object to MATLAB root.
+    """
     which_matlab = shutil.which("matlab")
     if which_matlab is None:
         return None
     return Path(which_matlab).resolve().parent.parent
 
 
-def get_matlab_version(matlab_path):
-    """Get the MATLAB Release version in this image"""
+def get_matlab_version(matlab_root_path):
+    """Returns MATLAB version from VersionInfo.xml file present at matlab_root_path
+    or from the MWI_CUSTOM_MATLAB_ROOT environment variable.
 
-    if matlab_path is None:
+    Args:
+        matlab_root_path (pathlib.Path): pathlib.Path to MATLAB root.
+
+    Returns:
+        (str | None): Returns MATLAB version from VersionInfo.xml file. 
+    """
+
+    custom_matlab_root_path = os.environ.get(mwi_env.get_env_name_custom_matlab_root())
+
+    matlab_root_path = (
+        custom_matlab_root_path
+        if custom_matlab_root_path
+        and mwi.validators.validate_custom_matlab_root_path(
+            Path(custom_matlab_root_path)
+        )
+        else matlab_root_path
+    )
+
+    if matlab_root_path is None:
         return None
 
-    tree = ET.parse(matlab_path / "VersionInfo.xml")
+    version_info_file_path = Path(matlab_root_path) / VERSION_INFO_FILE_NAME
+    tree = ET.parse(version_info_file_path)
     root = tree.getroot()
+
     return root.find("release").text
 
 
@@ -137,7 +165,7 @@ def get(config_name=matlab_proxy.get_default_config_name(), dev=False):
         matlab_startup_file = str(
             Path(__file__).resolve().parent / "matlab" / "startup.m"
         )
-        matlab_path = get_matlab_path()
+        matlab_path = get_matlab_root_path()
         ws_env, ws_env_suffix = get_ws_env_settings()
 
         ssl_key_file, ssl_cert_file = mwi.validators.validate_ssl_key_and_cert_file(

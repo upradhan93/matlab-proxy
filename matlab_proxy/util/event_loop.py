@@ -22,10 +22,9 @@ def get_event_loop():
     except RuntimeError:
         # If execution reached this except block, it implies that there
         # was no running event loop. So, create one.
-        if system.is_posix():
-            loop = asyncio.get_event_loop()
-        else:
-            loop = windows.get_event_loop()
+        loop = (
+            asyncio.get_event_loop() if system.is_posix() else windows.get_event_loop()
+        )
 
     return loop
 
