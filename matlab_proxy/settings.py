@@ -40,7 +40,7 @@ def get_matlab_version(matlab_root_path):
         matlab_root_path (pathlib.Path): pathlib.Path to MATLAB root.
 
     Returns:
-        (str | None): Returns MATLAB version from VersionInfo.xml file. 
+        (str | None): Returns MATLAB version from VersionInfo.xml file.
     """
 
     custom_matlab_root_path = os.environ.get(mwi_env.get_env_name_custom_matlab_root())
