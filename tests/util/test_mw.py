@@ -206,7 +206,9 @@ async def test_fetch_expand_token_licensing_error(mocker, mwa_api_data):
         mwa_api_data (namedtuple): A pytest fixture which returns a namedtuple containing values for MW authentication
     """
     url_pattern = mwa_api_data.mwa_api_endpoint_pattern
-    mock_resp = MockResponse(payload={}, ok=False, status=HTTPStatus.SERVICE_UNAVAILABLE)
+    mock_resp = MockResponse(
+        payload={}, ok=False, status=HTTPStatus.SERVICE_UNAVAILABLE
+    )
     mocked = mocker.patch("aiohttp.ClientSession.post", return_value=mock_resp)
 
     with pytest.raises(exceptions.OnlineLicensingError):
@@ -302,7 +304,9 @@ async def test_fetch_entitlements_licensing_error(mocker, mwa_api_data):
         mwa_api_data (namedtuple): A namedtuple which contains info related to mwa.
     """
     url_pattern = mwa_api_data.mhlm_api_endpoint_pattern
-    mock_resp = MockResponse(payload={}, ok=False, status=HTTPStatus.SERVICE_UNAVAILABLE)
+    mock_resp = MockResponse(
+        payload={}, ok=False, status=HTTPStatus.SERVICE_UNAVAILABLE
+    )
     mocked = mocker.patch("aiohttp.ClientSession.post", return_value=mock_resp)
 
     with pytest.raises(exceptions.OnlineLicensingError):
@@ -364,7 +368,9 @@ async def test_fetch_entitlements_entitlement_error(
     """
     url_pattern = mwa_api_data.mhlm_api_endpoint_pattern
 
-    mock_resp = MockResponse(payload={}, ok=True, text=invalid_entitlements, status=HTTPStatus.NOT_FOUND)
+    mock_resp = MockResponse(
+        payload={}, ok=True, text=invalid_entitlements, status=HTTPStatus.NOT_FOUND
+    )
     mocked = mocker.patch("aiohttp.ClientSession.post", return_value=mock_resp)
 
     with pytest.raises(exceptions.EntitlementError):
@@ -415,7 +421,9 @@ async def test_fetch_entitlements(mocker, mwa_api_data, valid_entitlements):
 
     url_pattern = mwa_api_data.mhlm_api_endpoint_pattern
 
-    mock_resp = MockResponse(payload={}, ok=True, text=valid_entitlements, status=HTTPStatus.OK)
+    mock_resp = MockResponse(
+        payload={}, ok=True, text=valid_entitlements, status=HTTPStatus.OK
+    )
     mocked = mocker.patch("aiohttp.ClientSession.post", return_value=mock_resp)
 
     resp = await mw.fetch_entitlements(
@@ -428,7 +436,7 @@ async def test_fetch_entitlements(mocker, mwa_api_data, valid_entitlements):
     url = args[0]
 
     assert resp is not None and len(resp) > 0
-    assert re.match(url_pattern, url)    
+    assert re.match(url_pattern, url)
 
 
 def test_parse_mhlm_no_error():
