@@ -12,7 +12,6 @@ from pathlib import Path
 
 import matlab_proxy
 from matlab_proxy.constants import VERSION_INFO_FILE_NAME
-
 from matlab_proxy.util import mwi, system
 from matlab_proxy.util.mwi import environment_variables as mwi_env
 from matlab_proxy.util.mwi import token_auth

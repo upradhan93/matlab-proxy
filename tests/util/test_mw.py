@@ -17,7 +17,7 @@ from matlab_proxy.util.mwi import exceptions
 
 
 @pytest.fixture(name="mwa_api_data")
-def mwa_api_data_fixture():
+def mwa_api_data_fixture(matlab_version_for_tests):
     """Pytest fixture which returns a namedtuple.
 
     The namedtuple contains values required for MW authentication
@@ -37,7 +37,7 @@ def mwa_api_data_fixture():
     identity_token = secrets.token_urlsafe(324)
     source_id = secrets.token_urlsafe(21)
     access_token = secrets.token_urlsafe(22)
-    matlab_release = "R2020b"
+    matlab_release = matlab_version_for_tests
 
     mwa_api_variables = namedtuple(
         "mwa_api_variables",

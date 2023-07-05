@@ -481,7 +481,7 @@ async def test_matlab_proxy_web_socket(test_server, headers):
     assert text.type == aiohttp.WSMsgType.CLOSED
 
 
-async def test_set_licensing_info_put_nlm(test_server):
+async def test_set_licensing_info_put_nlm(test_server, matlab_version_for_tests):
     """Test to check endpoint : "/set_licensing_info"
 
     Test which sends HTTP PUT request with NLM licensing information.
@@ -492,14 +492,16 @@ async def test_set_licensing_info_put_nlm(test_server):
     data = {
         "type": "nlm",
         "status": "starting",
-        "version": "R2020b",
+        "version": matlab_version_for_tests,
         "connectionString": "abc@nlm",
     }
     resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
     assert resp.status == 200
 
 
-async def test_set_licensing_info_put_invalid_license(test_server):
+async def test_set_licensing_info_put_invalid_license(
+    test_server, matlab_version_for_tests
+):
     """Test to check endpoint : "/set_licensing_info"
 
     Test which sends HTTP PUT request with INVALID licensing information type.
@@ -510,14 +512,14 @@ async def test_set_licensing_info_put_invalid_license(test_server):
     data = {
         "type": "INVALID_TYPE",
         "status": "starting",
-        "version": "R2020b",
+        "version": matlab_version_for_tests,
         "connectionString": "abc@nlm",
     }
     resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
     assert resp.status == 400
 
 
-async def test_set_licensing_info_put_mhlm(test_server):
+async def test_set_licensing_info_put_mhlm(test_server, matlab_version_for_tests):
     """Test to check endpoint : "/set_licensing_info"
 
     Test which sends HTTP PUT request with MHLM licensing information.
@@ -528,7 +530,7 @@ async def test_set_licensing_info_put_mhlm(test_server):
     data = {
         "type": "mhlm",
         "status": "starting",
-        "version": "R2020b",
+        "version": matlab_version_for_tests,
         "token": "abc@nlm",
         "emailaddress": "abc@nlm",
         "sourceId": "abc@nlm",

@@ -65,3 +65,8 @@ def event_loop():
     loop = util.get_event_loop()
     yield loop
     loop.close()
+
+
+@pytest.fixture(name="matlab_version_for_tests")
+def matlab_version_for_tests_fixture():
+    return "R2020b"

@@ -14,11 +14,6 @@ from matlab_proxy.util.mwi import environment_variables as mwi_env
 """
 
 
-@pytest.fixture(name="matlab_version_for_tests")
-def matlab_version_for_tests_fixture():
-    return "R2020b"
-
-
 @pytest.fixture(name="version_info_file_content")
 def version_info_file_content_fixture(matlab_version_for_tests):
     """
