@@ -112,6 +112,15 @@ def mock_shutil_which_fixture(mocker, fake_matlab_executable_path):
     mocker.patch("shutil.which", return_value=fake_matlab_executable_path)
 
 
+@pytest.fixture(name="non_existent_path")
+def non_existent_path_fixture(tmp_path):
+    # Build path to a non existent folder
+    random_folder = tmp_path / f'{str(time.time()).replace(".", "")}'
+    non_existent_path = Path(tmp_path) / random_folder
+
+    return non_existent_path
+
+
 def test_get_matlab_root_path(fake_matlab_root_path, mock_shutil_which):
     """Test to check if a valid matlab path is returned
 
@@ -123,6 +132,21 @@ def test_get_matlab_root_path(fake_matlab_root_path, mock_shutil_which):
         mock_shutil_which : Pytest fixture to mock shutil.which() method to return a fake matlab path
     """
     assert settings.get_matlab_root_path() == fake_matlab_root_path
+
+
+def test_get_matlab_root_path_invalid_custom_matlab_root(
+    monkeypatch, non_existent_path
+):
+    # Monkeypatch the env var
+    monkeypatch.setenv(
+        mwi_env.get_env_name_custom_matlab_root(), str(non_existent_path)
+    )
+
+    # Test for appropriate error
+    with pytest.raises(SystemExit) as e:
+        _ = settings.get_matlab_root_path()
+
+    assert e.value.code == 1
 
 
 def test_get_matlab_version_none():
@@ -144,25 +168,17 @@ def test_get_matlab_version(fake_matlab_root_path, mock_shutil_which):
     settings.get_matlab_version(matlab_path) is not None
 
 
-def test_get_matlab_version_invalid_custom_matlab_root(monkeypatch, tmp_path):
-    # Build path to a non existent folder
-    random_folder = tmp_path / f'{str(time.time()).replace(".", "")}'
-    non_existent_path = Path(tmp_path) / random_folder
-
+def test_get_matlab_version_invalid_custom_matlab_root(monkeypatch, non_existent_path):
     # Monkeypatch the env var
     monkeypatch.setenv(
         mwi_env.get_env_name_custom_matlab_root(), str(non_existent_path)
     )
 
-    # Test for appropriate error
-    with pytest.raises(SystemExit) as e:
-        matlab_version = settings.get_matlab_version(None)
-
-    assert e.value.code == 1
+    assert settings.get_matlab_version(None) is None
 
 
 def test_get_matlab_version_valid_custom_matlab_root(
-    tmp_path, monkeypatch, version_info_file_content, matlab_version_for_tests
+    non_existent_path, monkeypatch, version_info_file_content, matlab_version_for_tests
 ):
     """Test matlab version when a custom matlab root path is supplied
 
@@ -172,7 +188,7 @@ def test_get_matlab_version_valid_custom_matlab_root(
         version_info_file_content (str):Pytest fixture which returns contents of a valid VersionInfo.xml file
         matlab_version_for_tests (str): Pytest fixture which returns a valid matlab release version
     """
-    custom_matlab_root_path = Path(tmp_path) / f'{str(time.time()).replace(".", "")}'
+    custom_matlab_root_path = non_existent_path
     os.makedirs(custom_matlab_root_path, exist_ok=True)
 
     # Create a valid VersionInfo.xml file at custom matlab root
@@ -184,7 +200,7 @@ def test_get_matlab_version_valid_custom_matlab_root(
         mwi_env.get_env_name_custom_matlab_root(), str(custom_matlab_root_path)
     )
 
-    matlab_version = settings.get_matlab_version(None)
+    matlab_version = settings.get_matlab_version(custom_matlab_root_path)
 
     assert matlab_version == matlab_version_for_tests
 

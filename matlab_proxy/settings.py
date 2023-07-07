@@ -20,20 +20,26 @@ logger = mwi.logger.get()
 
 
 def get_matlab_root_path():
-    """Returns the path to MATLAB root.
+    """Returns the path from the MWI_CUSTOM_MATLAB_ROOT environment variable if valid, else returns
+    MATLAB root based on the matlab executable if found on the system path.
 
     Returns:
         pathlib.Path: pathlib.Path object to MATLAB root.
     """
+    custom_matlab_root_path = os.environ.get(mwi_env.get_env_name_custom_matlab_root())
+
+    if custom_matlab_root_path:
+        return mwi.validators.validate_custom_matlab_root_path(
+            Path(custom_matlab_root_path)
+        )
+
     which_matlab = shutil.which("matlab")
-    if which_matlab is None:
-        return None
-    return Path(which_matlab).resolve().parent.parent
+
+    return Path(which_matlab).resolve().parent.parent if which_matlab else None
 
 
 def get_matlab_version(matlab_root_path):
     """Returns MATLAB version from VersionInfo.xml file present at matlab_root_path
-    or from the MWI_CUSTOM_MATLAB_ROOT environment variable.
 
     Args:
         matlab_root_path (pathlib.Path): pathlib.Path to MATLAB root.
@@ -41,18 +47,6 @@ def get_matlab_version(matlab_root_path):
     Returns:
         (str | None): Returns MATLAB version from VersionInfo.xml file.
     """
-
-    custom_matlab_root_path = os.environ.get(mwi_env.get_env_name_custom_matlab_root())
-
-    matlab_root_path = (
-        custom_matlab_root_path
-        if custom_matlab_root_path
-        and mwi.validators.validate_custom_matlab_root_path(
-            Path(custom_matlab_root_path)
-        )
-        else matlab_root_path
-    )
-
     if matlab_root_path is None:
         return None
 
