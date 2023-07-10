@@ -31,7 +31,6 @@ def get_matlab_root_path():
     if custom_matlab_root_path and mwi.validators.validate_custom_matlab_root_path(
         Path(custom_matlab_root_path)
     ):
-        logger.debug(f"Supplied a valid MATLAB root path:{custom_matlab_root_path}")
         return custom_matlab_root_path
 
     which_matlab = shutil.which("matlab")
