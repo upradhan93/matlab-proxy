@@ -38,6 +38,25 @@ def get_matlab_root_path():
     return Path(which_matlab).resolve().parent.parent if which_matlab else None
 
 
+def get_matlab_executable_path(matlab_root_path: Path):
+    """Returns path to the MATLAB executable based on the OS
+
+    Args:
+        matlab_root_path (Path): Path to MATLAB Root
+
+    Returns:
+        [Path | None]: Path to MATLAB executable if a valid MATLAB root path is supplied else return None
+    """
+    if not matlab_root_path:
+        return None
+
+    return (
+        matlab_root_path / "bin" / "matlab"
+        if system.is_posix()
+        else matlab_root_path / "bin" / "matlab.exe"
+    )
+
+
 def get_matlab_version(matlab_root_path):
     """Returns MATLAB version from VersionInfo.xml file present at matlab_root_path
 
@@ -159,6 +178,7 @@ def get(config_name=matlab_proxy.get_default_config_name(), dev=False):
             Path(__file__).resolve().parent / "matlab" / "startup.m"
         )
         matlab_path = get_matlab_root_path()
+        matlab_executable_path = get_matlab_executable_path(Path(matlab_path))
         ws_env, ws_env_suffix = get_ws_env_settings()
 
         ssl_key_file, ssl_cert_file = mwi.validators.validate_ssl_key_and_cert_file(
@@ -193,7 +213,7 @@ def get(config_name=matlab_proxy.get_default_config_name(), dev=False):
             "matlab_path": matlab_path,
             "matlab_version": get_matlab_version(matlab_path),
             "matlab_cmd": [
-                "matlab",
+                matlab_executable_path,
                 "-nosplash",
                 flag_to_hide_desktop,
                 "-softwareopengl",

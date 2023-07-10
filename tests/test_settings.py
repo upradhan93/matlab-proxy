@@ -149,6 +149,14 @@ def test_get_matlab_root_path_invalid_custom_matlab_root(
     assert e.value.code == 1
 
 
+def test_get_matlab_executable_path_none():
+    assert settings.get_matlab_executable_path(None) == None
+
+
+def test_get_matlab_executable_path(fake_matlab_root_path):
+    assert settings.get_matlab_executable_path(fake_matlab_root_path) is not None
+
+
 def test_get_matlab_version_none():
     """Test to check settings.get_matlab_version() returns None when no valid matlab path is provided."""
     assert settings.get_matlab_version(None) is None
@@ -237,7 +245,7 @@ def test_get_dev_false(patch_env_variables, mock_shutil_which, fake_matlab_root_
         patch_env_variables : Pytest fixture which monkeypatches some env variables.
     """
     _settings = settings.get(dev=False)
-    assert _settings["matlab_cmd"][0] == "matlab"
+    assert "matlab" in str(_settings["matlab_cmd"][0])
     assert os.path.isdir(_settings["matlab_path"])
     assert _settings["matlab_protocol"] == "https"
 
