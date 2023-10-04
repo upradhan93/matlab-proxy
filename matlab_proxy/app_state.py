@@ -1029,6 +1029,14 @@ class AppState:
 
     async def stop_matlab(self, force_quit=False):
         """Terminate MATLAB."""
+
+        """
+         Fetch matlab state before deleting its session files because
+         get_matlab_state() checks for the existence of these files in 
+         determining matlab state.
+        """
+        matlab_state = await self.get_matlab_state()
+
         # Clean up session files which determine various states of the server &/ MATLAB.
         # Do this first as stopping MATLAB/Xvfb takes longer and may fail
         try:
@@ -1052,7 +1060,7 @@ class AppState:
                 # OR
                 # When force_quit is set to True
                 # directly terminate the MATLAB process instead.
-                if await self.get_matlab_state() == "starting" or force_quit:
+                if matlab_state == "starting" or force_quit:
                     logger.debug("Forcing the MATLAB process to terminate...")
                     matlab.terminate()
                     waiters.append(matlab.wait())
