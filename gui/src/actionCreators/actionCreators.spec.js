@@ -65,7 +65,6 @@ describe('Test Sync actionCreators', () => {
       error: null,
       serverStatus: {
         matlabStatus: 'starting',
-        matlabVersion: 'R2020b',
         isFetching: true,
         hasFetched: false,
         fetchFailCount: 0,
@@ -105,7 +104,6 @@ describe('Test fetchWithTimeout method', () => {
     store = mockStore({
       error: null,
       serverStatus: {
-        matlabVersion: 'R2020b',
         licensingInfo: {
           type: 'NLM',
           connectionString: 'abc@nlm',
@@ -184,7 +182,6 @@ describe('Test Async actionCreators', () => {
     store = mockStore({
       error: null,
       serverStatus: {
-        matlabVersion: 'R2020b',
         licensingInfo: {
           type: 'NLM',
           connectionString: 'abc@nlm',

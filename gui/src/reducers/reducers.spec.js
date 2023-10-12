@@ -256,25 +256,6 @@ describe('reducers', () => {
     });
   });
 
-  describe('matlabVersion', () => {
-
-
-    it('should return matlab version for action type defined in receiveActions', () => {
-      for (let i = 0; i < receiveActions.length; i++) {
-        action = _.cloneDeep(genericAction);
-        action.type = receiveActions[i];
-        expect(reducers.matlabVersion(undefined, action)).toBe(
-          action.status.matlab.version
-        );
-      }
-    });
-
-    it('should return matlab version : null as default', () => {
-      action = _.cloneDeep(genericAction);
-      expect(reducers.matlabVersion(undefined, action)).toBeNull();
-    });
-  });
-
   describe('wsEnv', () => {
 
     it('should return wsEnv value for action type defined in receiveActions', () => {

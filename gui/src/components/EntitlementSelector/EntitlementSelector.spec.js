@@ -31,7 +31,6 @@ describe("EntitlementSelector Component", () => {
           entitlementId: null,
         },
         matlabStatus: "down",
-        matlabVersion: "R2023a",
         isFetching: false,
         hasFetched: true,
         isSubmitting: false,

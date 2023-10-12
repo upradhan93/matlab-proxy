@@ -17,7 +17,6 @@ describe('LicenseGatherer component', () => {
       serverStatus: {
         licensingInfo: { type: 'mhlm', emailAddress: 'abc@mathworks.com' },
         matlabStatus: 'up',
-        matlabVersion: 'R2020b',
         isFetching: false,
         hasFetched: true,
         isSubmitting: false,

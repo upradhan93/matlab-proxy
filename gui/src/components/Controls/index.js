@@ -1,6 +1,6 @@
-// Copyright (c) 2020-2023 The MathWorks, Inc.
+// Copyright 2020-2023 The MathWorks, Inc.
 
-import React, { useMemo } from 'react';
+import React from 'react';
 import PropTypes from 'prop-types';
 import { useSelector } from 'react-redux';
 import ReactTooltip from 'react-tooltip';
@@ -12,7 +12,6 @@ import {
     selectMatlabStarting,
     selectMatlabStopping,
     selectMatlabDown, 
-    selectMatlabVersion,
     selectError,
     selectIsAuthenticated,
     selectAuthEnabled,
@@ -40,20 +39,11 @@ function Controls({
     const matlabUp = useSelector(selectMatlabUp);
     const matlabStopping = useSelector(selectMatlabStopping);
     const matlabDown = useSelector(selectMatlabDown);
-    const matlabVersion = useSelector(selectMatlabVersion);
     const error = useSelector(selectError);
     const authEnabled = useSelector(selectAuthEnabled);
     const isAuthenticated = useSelector(selectIsAuthenticated);
     const licensingInfo = useSelector(selectLicensingInfo);
     const canResetLicensing = licensed && !submitting;
-
-    const feedbackBody = useMemo(
-        () => `%0D%0A
-Thank you for providing feedback.%0D%0A
-%0D%0A
-MATLAB version: ${matlabVersion}%0D%0A`,
-        [matlabVersion]
-    );
 
     let licensingData, licensingConfirmationMessage;
     switch (licensingInfo?.type) {
@@ -183,9 +173,11 @@ MATLAB version: ${matlabVersion}%0D%0A`,
                 id="feedback"
                 data-testid='feedbackLink'
                 className="btn btn_color_mediumgray companion_btn"
-                href={`mailto:cloud@mathworks.com?subject=MATLAB-PROXY Feedback&body=${feedbackBody}`}
+                href="https://github.com/mathworks/matlab-proxy/issues/new/choose"
+                target="_blank"
+                rel="noreferrer"
                 data-for="control-button-tooltip"
-                data-tip="Send feedback (opens your default email application)"
+                data-tip="Provide feedback (opens matlab-proxy repository on github.com in a new tab)"
             >
                 <span className='icon-custom-feedback'></span>
                 <span className='btn-label'>Feedback</span>

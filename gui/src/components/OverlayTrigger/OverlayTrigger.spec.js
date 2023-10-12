@@ -21,7 +21,6 @@ describe("OverlayTrigger Component", () => {
       serverStatus: {
         licensingInfo: { type: "MHLM", emailAddress: "abc@mathworks.com" },
         matlabStatus: "up",
-        matlabVersion: "R2020b",
         isFetching: false,
         hasFetched: true,
         isSubmitting: false,

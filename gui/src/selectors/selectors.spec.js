@@ -16,7 +16,6 @@ describe('selectors', () => {
     error: null,
     serverStatus: {
       matlabStatus: 'up',
-      matlabVersion: 'R2020b',
       isSubmitting: true,
       hasFetched: false,
       licensingInfo: {
@@ -39,7 +38,7 @@ describe('selectors', () => {
     authInfo,
   } = state;
 
-  const { matlabVersion,
+  const {
     isSubmitting,
     hasFetched,
     licensingInfo,
@@ -88,7 +87,6 @@ describe('selectors', () => {
     [selectServerStatus, serverStatus],
     [selectLoadUrl, loadUrl],
     [selectError, error],
-    [selectMatlabVersion, matlabVersion],
     [selectMatlabStatus, matlabStatus],
     [selectSubmittingServerStatus, isSubmitting],
     [selectHasFetchedServerStatus, hasFetched],

@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2023 The MathWorks, Inc.
+# Copyright 2020-2023 The MathWorks, Inc.
 
 import asyncio
 import contextlib
@@ -21,6 +21,7 @@ from matlab_proxy.util.mwi.exceptions import (
     MatlabError,
     OnlineLicensingError,
     XvfbError,
+    UIVisibleFatalError,
     log_error,
 )
 from matlab_proxy.constants import CONNECTOR_SECUREPORT_FILENAME
@@ -120,6 +121,7 @@ class AppState:
             Boolean: True when entitlements were updated and persisted successfully. False otherwise.
         """
         successful_update = await self.update_entitlements()
+        print("successful update status ", successful_update)
         if successful_update:
             self.persist_licensing()
         else:
@@ -374,6 +376,17 @@ class AppState:
             }
             log_error(logger, e)
 
+        except UIVisibleFatalError as e:
+            self.error = e
+            # self.licensing = {
+            #     "type": "mhlm",
+            #     "email_addr": email_addr,
+            # }
+            # self.licensing = {
+            #     "type": "existing_license",
+            # }
+            log_error(logger, e)
+
     def unset_licensing(self):
         """Unset the licensing."""
 
@@ -418,6 +431,17 @@ class AppState:
         if self.licensing is None or self.licensing["type"] != "mhlm":
             raise FatalError(
                 "MHLM licensing must be configured to update entitlements!"
+            )
+
+        # TODO: Updating entitlements requires the matlab version. If it
+        # could not be determined at server startup, take input from the user
+        # for the MATLAB version they intend to start and update settings.
+
+        # As MHLM licensing requires matlab version to update entitlements, if it couldn't be determined
+        # for now show an error to the user to set MWI_CUSTOM_MATLAB_ROOT env var.
+        if self.settings["matlab_version"] is None:
+            raise UIVisibleFatalError(
+                f"Need matlab version to update entitlements. Set {mwi_env.get_env_name_custom_matlab_root()} environment variable to MATLAB root"
             )
 
         try:
