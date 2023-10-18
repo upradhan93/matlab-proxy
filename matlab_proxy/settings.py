@@ -22,9 +22,6 @@ from matlab_proxy.util.mwi.exceptions import (
 
 logger = mwi.logger.get()
 
-# Global process startup timeout.
-PROCESS_STARTUP_TIMEOUT = None
-
 
 def get_process_startup_timeout():
     """Returns the timeout for a process launched by matlab-proxy as specified by MWI_PROCESS_START_TIMEOUT environment variable
@@ -33,11 +30,6 @@ def get_process_startup_timeout():
     Returns:
         int: timeout for a process launched by matlab-proxy
     """
-    global PROCESS_STARTUP_TIMEOUT
-
-    if PROCESS_STARTUP_TIMEOUT:
-        return PROCESS_STARTUP_TIMEOUT
-
     custom_startup_timeout = os.getenv(mwi_env.get_env_name_process_startup_timeout())
 
     if custom_startup_timeout:
@@ -56,11 +48,10 @@ def get_process_startup_timeout():
     else:
         custom_startup_timeout = constants.__PROCESS_START_TIMEOUT
         logger.info(
-            f"Using default process startup timeout {custom_startup_timeout} seconds"
+            f"Using {constants.__PROCESS_START_TIMEOUT} seconds as the default timeout value"
         )
 
-    PROCESS_STARTUP_TIMEOUT = custom_startup_timeout
-    return PROCESS_STARTUP_TIMEOUT
+    return custom_startup_timeout
 
 
 def get_matlab_executable_and_root_path():
