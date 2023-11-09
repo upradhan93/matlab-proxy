@@ -9,10 +9,15 @@ import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Final
+from build.lib.matlab_proxy.util.system import is_windows
 
 from matlab_proxy import util
 from matlab_proxy.settings import get_process_startup_timeout
-from matlab_proxy.constants import CONNECTOR_SECUREPORT_FILENAME, VERSION_INFO_FILE_NAME
+from matlab_proxy.constants import (
+    CONNECTOR_SECUREPORT_FILENAME,
+    MATLAB_LOGS_FILE_NAME,
+    VERSION_INFO_FILE_NAME,
+)
 from matlab_proxy.util import mw, mwi, system, windows
 from matlab_proxy.util.mwi import environment_variables as mwi_env
 from matlab_proxy.util.mwi import token_auth
@@ -663,7 +668,16 @@ class AppState:
         # Env setup related to logging
         # Very verbose logging in debug mode
         if logger.isEnabledFor(logging.getLevelName("DEBUG")):
-            matlab_env["MW_DIAGNOSTIC_DEST"] = "stdout"
+            if system.is_posix():
+                matlab_env["MW_DIAGNOSTIC_DEST"] = "stdout"
+
+            else:
+                # On windows stdout is not yet supported.
+                # So, provide a file path for writing MATLAB logs.
+                logs_file_path = self.mwi_logs_dir / MATLAB_LOGS_FILE_NAME
+                logger.info(f"Writing MATLAB process logs to: {logs_file_path}")
+                matlab_env["MW_DIAGNOSTIC_DEST"] = f"file={logs_file_path}"
+
             matlab_env[
                 "MW_DIAGNOSTIC_SPEC"
             ] = "connector::http::server=all;connector::lifecycle=all"
