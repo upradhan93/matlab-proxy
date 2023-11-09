@@ -9,7 +9,6 @@ import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Final
-from build.lib.matlab_proxy.util.system import is_windows
 
 from matlab_proxy import util
 from matlab_proxy.settings import get_process_startup_timeout
