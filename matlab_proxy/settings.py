@@ -136,6 +136,10 @@ def get_mwi_config_folder(dev=False):
         return Path.home() / ".matlab" / "MWI"
 
 
+def get_default_mwi_log_file_path():
+    return get_mwi_config_folder() / constants.MATLAB_LOGS_FILE_NAME
+
+
 def get_mwi_logs_root_dir(dev=False):
     return get_mwi_config_folder(dev) / "ports"
 
@@ -269,6 +273,10 @@ def get_server_settings(config_name):
         os.getenv(mwi_env.get_env_name_ssl_key_file(), None),
         os.getenv(mwi_env.get_env_name_ssl_cert_file(), None),
     )
+
+    # log file validation check is already done in logger.py
+    mwi_log_file = os.getenv(mwi_env.get_env_name_log_file(), None)
+
     return {
         "create_xvfb_cmd": create_xvfb_cmd,
         "base_url": mwi.validators.validate_base_url(
@@ -288,6 +296,7 @@ def get_server_settings(config_name):
         # This directory will be used to store connector.securePort(matlab_ready_file) and its corresponding files. This will be
         # a central place to store logs of all the running instances of MATLAB launched by matlab-proxy
         "mwi_logs_root_dir": get_mwi_logs_root_dir(),
+        "mwi_log_file": mwi_log_file,
         "mw_context_tags": get_mw_context_tags(config_name),
         # The url where the matlab-proxy server is accessible at
         "mwi_server_url": None,

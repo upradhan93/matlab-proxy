@@ -11,7 +11,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Final
 
 from matlab_proxy import util
-from matlab_proxy.settings import get_process_startup_timeout
+from matlab_proxy.settings import (
+    get_process_startup_timeout,
+    get_default_mwi_log_file_path,
+)
 from matlab_proxy.constants import (
     CONNECTOR_SECUREPORT_FILENAME,
     MATLAB_LOGS_FILE_NAME,
@@ -667,15 +670,22 @@ class AppState:
         # Env setup related to logging
         # Very verbose logging in debug mode
         if logger.isEnabledFor(logging.getLevelName("DEBUG")):
-            if system.is_posix():
+            mwi_log_file = self.settings.get("mwi_log_file", None)
+            # If a log file is supplied to write matlab-proxy server logs,
+            # use it to write MATLAB logs too.
+            if mwi_log_file:
+                # Append MATLAB logs to matlab-proxy logs
+                matlab_env["MW_DIAGNOSTIC_DEST"] = f"file,append={mwi_log_file}"
+
+            elif system.is_posix():
                 matlab_env["MW_DIAGNOSTIC_DEST"] = "stdout"
 
             else:
-                # On windows stdout is not yet supported.
-                # So, provide a file path for writing MATLAB logs.
-                logs_file_path = self.mwi_logs_dir / MATLAB_LOGS_FILE_NAME
-                logger.info(f"Writing MATLAB process logs to: {logs_file_path}")
-                matlab_env["MW_DIAGNOSTIC_DEST"] = f"file={logs_file_path}"
+                # On windows stdout is not supported yet.
+                # So, use the default log file for MATLAB logs
+                default_matlab_logs_file = get_default_mwi_log_file_path()
+                # Write MATLAB logs
+                matlab_env["MW_DIAGNOSTIC_DEST"] = f"file={default_matlab_logs_file}"
 
             matlab_env[
                 "MW_DIAGNOSTIC_SPEC"
