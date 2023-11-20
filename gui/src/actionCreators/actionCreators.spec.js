@@ -99,7 +99,7 @@ describe('Test Sync actionCreators', () => {
 });
 
 describe('Test fetchWithTimeout method', () => {
-  let store;
+  let store, abortSpy;
   beforeEach(() => {
     store = mockStore({
       error: null,
@@ -114,10 +114,13 @@ describe('Test fetchWithTimeout method', () => {
         fetchFailCount: 0,
       },
     });
+
+    fetchMock.restore();
+    abortSpy = jest.spyOn(global.AbortController.prototype, 'abort');
   });
 
   afterEach(() => {
-    fetchMock.restore();
+    abortSpy.mockRestore();
   });
 
   it('should fetch requested data without raising an exception or dispatching any action', async () => {
