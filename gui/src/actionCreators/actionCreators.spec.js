@@ -114,12 +114,12 @@ describe('Test fetchWithTimeout method', () => {
         fetchFailCount: 0,
       },
     });
-
-    fetchMock.restore();
+        
     abortSpy = jest.spyOn(global.AbortController.prototype, 'abort');
   });
 
   afterEach(() => {
+    fetchMock.restore();
     abortSpy.mockRestore();
   });
 
