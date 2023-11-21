@@ -114,12 +114,10 @@ describe('Test fetchWithTimeout method', () => {
         fetchFailCount: 0,
       },
     });
-        
   });
 
   afterEach(() => {
     fetchMock.restore();
-    abortSpy.mockRestore();
   });
 
   it('should fetch requested data without raising an exception or dispatching any action', async () => {
@@ -140,7 +138,6 @@ describe('Test fetchWithTimeout method', () => {
   });
 
   it('dispatches RECIEVE_ERROR when no response is received', async () => {
-
     const expectedActions = [
       actions.RECEIVE_ERROR,
     ];
@@ -188,7 +185,6 @@ describe('Test fetchWithTimeout method in seperate describe block', () => {
     const received = store.getActions();
     expect(received.map((a) => a.type)).toEqual(expectedActions);
   });
-
 });
 
 describe('Test Async actionCreators', () => {
