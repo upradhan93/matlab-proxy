@@ -168,7 +168,7 @@ describe('Test fetchWithTimeout method in seperate describe block', () => {
       },
     });
 
-    let abortSpy = jest.spyOn(global.AbortController.prototype, 'abort');
+    let abortSpy = jest.spyOn(AbortController.prototype, 'abort');
     const timeout = 10
 
     // Send a delayed response, well after the timeout for the request has expired.
