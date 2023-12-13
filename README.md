@@ -47,9 +47,10 @@ The MATLAB Proxy is under active development. For support or to report issues, s
 
   $ sudo yum install xorg-x11-server-Xvfb
   ```
+  
+  *Note: MATLAB may not function correctly if Xvfb is not available on Linux® based systems.*
 * Python versions: **3.8** | **3.9**  | **3.10** | **3.11**
 * [Browser Requirements](https://www.mathworks.com/support/requirements/browser-requirements.html)
-
 * Supported Operating Systems:
     * Linux®
     * Windows® Operating System ( starting v0.4.0 of matlab-proxy )

@@ -101,7 +101,7 @@ function Information({
                 className={`expand_target warnings-container alert alert-warning ${warningsExpanded ? 'expanded' : 'collapsed'}`}
                 aria-expanded={warningsExpanded}>
                 <Linkify>
-                    <div className="warnings-msg">{warnings.join('\n').trim()}</div>
+                    <div className="warnings-msg">{warnings.map((warning, index) => (index + 1).toString() + ")" + warning.trim()).join("\n\n")}</div>
                 </Linkify>
             </div>
         </div>
