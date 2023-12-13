@@ -7,6 +7,7 @@ import Linkify from 'react-linkify';
 import {
     selectLicensingInfo,
     selectError,
+    selectWarnings,
     selectOverlayHidable,
     selectInformationDetails,
     selectAuthEnabled,
@@ -22,6 +23,7 @@ function Information({
 }) {
     const licensingInfo = useSelector(selectLicensingInfo);
     const error = useSelector(selectError);
+    const warnings = useSelector(selectWarnings);
     const overlayHidable = useSelector(selectOverlayHidable);
 
     const [token, setToken] = useState('');
@@ -33,9 +35,7 @@ function Information({
     const tokenInput = useRef();
 
     const [errorLogsExpanded, setErrorLogsExpanded] = useState(false);
-    const errorLogsExpandedToggle = () => {
-        setErrorLogsExpanded(!errorLogsExpanded);
-    };
+    const [warningsExpanded, setWarningsExpanded] = useState(false);
 
     let info;
     switch (licensingInfo?.type) {
@@ -73,8 +73,8 @@ function Information({
 
     const errorLogsNode = (error && error.logs !== null && error.logs.length > 0) ? (
         <div className="expand_collapse error-logs-container">
-            <h4 className={`expand_trigger ${errorLogsExpanded ? 'expanded' : 'collapsed'}`}
-                onClick={errorLogsExpandedToggle}>
+            <h4 className={`expand_trigger ${errorLogsExpanded ? 'expanded' : 'collapsed'}`} 
+            onClick={() => setErrorLogsExpanded(!errorLogsExpanded)}>
                 <span className="icon-arrow-open-down"></span>
                 <span className="icon-arrow-open-right"></span>
                 Error logs
@@ -84,6 +84,24 @@ function Information({
                 aria-expanded={errorLogsExpanded}>
                 <Linkify>
                     <div className="error-msg">{error.logs.join('\n').trim()}</div>
+                </Linkify>
+            </div>
+        </div>
+    ) : null;
+
+    const warningsNode = (warnings && warnings.length > 0) ? (
+        <div className="expand_collapse warnings-container">
+            <h4 className={`expand_trigger ${warningsExpanded ? 'expanded' : 'collapsed'}`}
+                onClick={() => setWarningsExpanded(!warningsExpanded)}>
+                <span className="icon-arrow-open-down"></span>
+                <span className="icon-arrow-open-right"></span>
+                Warnings
+            </h4>
+            <div id="warnings"
+                className={`expand_target warnings-container alert alert-warning ${warningsExpanded ? 'expanded' : 'collapsed'}`}
+                aria-expanded={warningsExpanded}>
+                <Linkify>
+                    <div className="warnings-msg">{warnings.join('\n').trim()}</div>
                 </Linkify>
             </div>
         </div>
@@ -197,6 +215,7 @@ function Information({
                         </div>
                         {errorMessageNode}
                         {errorLogsNode}
+                        {warningsNode}
                     </div>
                     <div className="modal-footer">
                         {children}

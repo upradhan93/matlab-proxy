@@ -199,6 +199,8 @@ def get_dev_settings(config):
         "mwi_use_existing_license": mwi.validators.validate_use_existing_licensing(
             os.getenv(mwi_env.get_env_name_mwi_use_existing_license(), "")
         ),
+        "warnings": [],
+        "xvfb_on_path": False,
     }
 
 
@@ -243,12 +245,23 @@ def get(config_name=matlab_proxy.get_default_config_name(), dev=False):
             settings["nlm_conn_str"] = "123@nlm"
 
     else:
-        settings = {"error": None}
+        settings = {"error": None, "warnings": []}
 
         # Initializing server settings separately allows us to return
         # a minimal set of settings required to launch the server even if
         # there is an exception thrown when creating the matlab specific settings.
         settings.update(get_server_settings(config_name))
+
+        settings["xvfb_on_path"] = True if shutil.which("Xvfb") else False
+
+        # Warn user if xvfb is not available on system path.
+        if system.is_linux() and not settings["xvfb_on_path"]:
+            logger.warning(
+                "Unable to find Xvfb on the system Path. It is required for proper functioning of MATLAB. Add Xvfb to the system Path and restart matlab-proxy."
+            )
+            settings["warnings"].append(
+                "MATLAB requires Xvfb to function properly but it could not be found on the system PATH.\nSee https://github.com/mathworks/matlab-proxy#requirements for information on Xvfb"
+            )
 
         try:
             # Update settings with matlab specific values.

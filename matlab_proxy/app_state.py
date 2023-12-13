@@ -84,6 +84,7 @@ class AppState:
 
         # Initialize with the error state from the initialization of settings
         self.error = settings["error"]
+        self.warnings = settings["warnings"]
 
         if self.error is not None:
             self.logs["matlab"].clear()
@@ -262,7 +263,10 @@ class AppState:
             xvfb_process = self.processes["xvfb"]
 
         if system.is_linux():
-            if xvfb_process is None or xvfb_process.returncode is not None:
+            # If Xvfb is on system PATH, check if it up and running.
+            if self.settings["xvfb_on_path"] and (
+                xvfb_process is None or xvfb_process.returncode is not None
+            ):
                 logger.debug(
                     "Xvfb has not started"
                     if xvfb_process is None
@@ -671,8 +675,8 @@ class AppState:
         # DDUX info for MATLAB
         matlab_env["MW_CONTEXT_TAGS"] = self.settings.get("mw_context_tags")
 
-        if system.is_linux():
-            # Adding DISPLAY key which is only available after starting Xvfb successfully.
+        # Update DISPLAY env variable for MATLAB only if it was supplied by Xvfb.
+        if system.is_linux() and self.settings.get("matlab_display", None):
             matlab_env["DISPLAY"] = self.settings["matlab_display"]
 
         # The matlab ready file is written into this location(self.mwi_logs_dir) by MATLAB
@@ -968,8 +972,8 @@ class AppState:
         self.error = None
         self.logs["matlab"].clear()
 
-        # Start Xvfb process if in a posix system
-        if system.is_linux():
+        # Start Xvfb process on linux if possible
+        if system.is_linux() and self.settings["xvfb_on_path"]:
             xvfb = await self.__start_xvfb_process()
 
             # xvfb variable would be None if creation of the process failed.
