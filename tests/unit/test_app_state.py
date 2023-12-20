@@ -29,7 +29,7 @@ def sample_settings_fixture(tmp_path):
         "error": None,
         "warnings": [],
         "matlab_config_file": tmp_file,
-        "xvfb_on_path": True,
+        "is_xvfb_available": True,
         "mwi_server_url": "dummy",
         "mwi_logs_root_dir": Path(settings.get_mwi_config_folder(dev=True)),
         "app_port": 12345,
@@ -321,7 +321,7 @@ def test_are_required_processes_ready(
     # Arrange
     app_state_fixture.processes = {"matlab": matlab, "xvfb": xvfb}
     if not xvfb:
-        app_state_fixture.settings["xvfb_on_path"] = False
+        app_state_fixture.settings["is_xvfb_available"] = False
 
     # Act
     actual = app_state_fixture._are_required_processes_ready()
@@ -552,7 +552,7 @@ async def test_start_matlab_without_xvfb(app_state_fixture, mocker):
         mocker : Built-in pytest fixture
     """
     # Arrange
-    app_state_fixture.settings["xvfb_on_path"] = False
+    app_state_fixture.settings["is_xvfb_available"] = False
     mock_matlab = Mock_matlab(None, 1)
 
     # Starting asyncio tasks related to matlab is not required here as only Xvfb check is required.

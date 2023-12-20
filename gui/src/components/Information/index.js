@@ -35,7 +35,7 @@ function Information({
     const tokenInput = useRef();
 
     const [errorLogsExpanded, setErrorLogsExpanded] = useState(false);
-    const [warningsExpanded, setWarningsExpanded] = useState(false);
+    const [warningsExpanded, setWarningsExpanded] = useState(true);
 
     let info;
     switch (licensingInfo?.type) {
@@ -89,6 +89,13 @@ function Information({
         </div>
     ) : null;
 
+    const linkDecorator = (href, text, key) => (
+            <a href={href} key={key} target="_blank" rel="noopener noreferrer">
+                {text}
+            </a>
+        );
+
+
     const warningsNode = (warnings && warnings.length > 0) ? (
         <div className="expand_collapse warnings-container">
             <h4 className={`expand_trigger ${warningsExpanded ? 'expanded' : 'collapsed'}`}
@@ -100,7 +107,7 @@ function Information({
             <div id="warnings"
                 className={`expand_target warnings-container alert alert-warning ${warningsExpanded ? 'expanded' : 'collapsed'}`}
                 aria-expanded={warningsExpanded}>
-                <Linkify>
+                <Linkify componentDecorator={linkDecorator}>
                     <div className="warnings-msg">{warnings.map((warning, index) => (index + 1).toString() + ")" + warning.trim()).join("\n\n")}</div>
                 </Linkify>
             </div>
