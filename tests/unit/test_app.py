@@ -239,10 +239,9 @@ async def test_get_env_config(test_server):
     Args:
         test_server (aiohttp_client): A aiohttp_client server for sending GET request.
     """
-    expected_json_structure = {      
+    expected_json_structure = {
         "useMOS": False,
         "useMRE": False,
-        "authStatus": None,
         "authentication": {"enabled": False, "status": False},
         "matlab": {
             "status": "up",
