@@ -77,7 +77,7 @@ function MHLM({mhlmLicensingInfo = null}) {
     const [iFrameLoaded, setIFrameLoaded] = useState(false);
     // useState variable to store response from mhlm after authentication
     const [fetchedMhlmLicensingInfo, setFetchedMhlmLicensingInfo] = useState(mhlmLicensingInfo)
-    const [selectedMatlabVersion, setSelectedMatlabVersion] = useState(supportedMatlabVersions[0]); 
+    const [selectedMatlabVersion, setSelectedMatlabVersion] = useState(supportedMatlabVersions[supportedMatlabVersions.length - 1]); 
     
     const mhlmLoginHostname = useMemo(
         () => {
@@ -172,7 +172,7 @@ function MHLM({mhlmLicensingInfo = null}) {
             <form onSubmit={submitForm}>
                 <div className='form-group'>                     
                     <p>
-                        <b>Note</b>: Choose the MATLAB version your MathWorks account is linked with a valid license
+                        <b>Note</b>: MATLAB version could not be determined using the matlab executable on system PATH, choose the MATLAB version you intend to launch.
                     </p>
                     <br/>
                     <select value={selectedMatlabVersion} onChange={(e) => setSelectedMatlabVersion(e.target.value)}>
