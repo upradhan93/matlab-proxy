@@ -172,7 +172,7 @@ function MHLM({mhlmLicensingInfo = null}) {
             <form onSubmit={submitForm}>
                 <div className='form-group'>                     
                     <p>
-                        <b>Note</b>: MATLAB version could not be determined using the matlab executable on system PATH, choose the MATLAB version you intend to launch.
+                        <b>Note</b>: The version of MATLAB could not be determined. Choose the version of MATLAB you are attempting to start.
                     </p>
                     <br/>
                     <select value={selectedMatlabVersion} onChange={(e) => setSelectedMatlabVersion(e.target.value)}>
