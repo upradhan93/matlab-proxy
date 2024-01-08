@@ -256,7 +256,7 @@ def get(config_name=matlab_proxy.get_default_config_name(), dev=False):
 
         # Warn user if xvfb is not available on system path.
         if system.is_linux() and not settings["is_xvfb_available"]:
-            warning = "Unable to find Xvfb on the system PATH. Xvfb enables graphical abilities like plots and figures in the MATLAB desktop.\nConsider adding Xvfb to the system Path and restart matlab-proxy. See https://github.com/mathworks/matlab-proxy#requirements for information."
+            warning = " Unable to find Xvfb on the system PATH. Xvfb enables graphical abilities like plots and figures in the MATLAB desktop.\nConsider adding Xvfb to the system PATH and restart matlab-proxy. See https://github.com/mathworks/matlab-proxy#requirements for information."
             logger.warning(warning)
             settings["warnings"].append(warning)
 
