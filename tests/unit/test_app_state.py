@@ -249,7 +249,12 @@ def test_persist_config_data(licensing_data: dict, tmp_path):
     """
     # Arrange
     tmp_file = tmp_path / "parent_1" / "parent_2" / "tmp_file.json"
-    settings = {"matlab_config_file": tmp_file, "error": None, "matlab_version": None, "warnings": []}
+    settings = {
+        "matlab_config_file": tmp_file,
+        "error": None,
+        "matlab_version": None,
+        "warnings": [],
+    }
     app_state = AppState(settings=settings)
     app_state.licensing = licensing_data
 
