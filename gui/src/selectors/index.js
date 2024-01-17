@@ -12,6 +12,7 @@ export const selectEnvConfig = state => state.envConfig;
 export const selectWsEnv = state => state.serverStatus.wsEnv;
 export const selectSubmittingServerStatus = state => state.serverStatus.isSubmitting;
 export const selectHasFetchedServerStatus = state => state.serverStatus.hasFetched;
+export const selectIsFetchingServerStatus = state => state.serverStatus.isFetching;
 export const selectLicensingInfo = state => state.serverStatus.licensingInfo;
 export const selectServerStatusFetchFailCount = state => state.serverStatus.fetchFailCount;
 export const selectLoadUrl = state => state.loadUrl;
@@ -56,7 +57,7 @@ export const selectIsConnectionError = createSelector(
         if (isConcurrencyEnabled && isConcurrent) {
             return fails >= 1
         }
-        return fails >= 5
+        return fails >= 60
     }
 );
 
@@ -106,17 +107,15 @@ export const getFetchAbortController = createSelector(
 
 // If the session is concurrent or if there is a connection error then disable the fetching of data such as get_status.
 export const selectFetchStatusPeriod = createSelector(
-    selectMatlabStatus,
     selectSubmittingServerStatus,
+    selectIsFetchingServerStatus,
     selectIsConcurrencyEnabled,
     selectIsConcurrent,
-    (matlabStatus, isSubmitting, isConcurrencyEnabled, isConcurrent) => {
-        if (isSubmitting || (isConcurrencyEnabled && isConcurrent)) {
+    (isSubmitting, isFetching, isConcurrencyEnabled, isConcurrent) => {
+        if (isSubmitting || isFetching || (isConcurrencyEnabled && isConcurrent)) {
             return null;
-        } else if (matlabStatus === 'up') {
-            return 10000;
         }
-        return 5000;
+        return 1000;
     }
 );
 

@@ -132,7 +132,7 @@ describe('App Component', () => {
     //Hide the tutorial, make the overlay visible and set fetchFailCount to 10
     initialState.tutorialHidden = true;
     initialState.overlayVisibility = true;
-    initialState.serverStatus.fetchFailCount = 10;
+    initialState.serverStatus.fetchFailCount = 61;
 
     //Rendering the App component with above changes to the initial state
     // will terminate the integration.
