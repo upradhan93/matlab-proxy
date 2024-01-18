@@ -267,7 +267,7 @@ describe('selectors', () => {
 
     test('selectFetchStatusPeriod should return null if the server is fetching any kind server status', () => {
       modifiedState = _.cloneDeep(state);
-      modifiedState.serverStatus.isFetching = true;
+      modifiedState.serverStatus.isFetchingServerStatus = true;
       expect(selectFetchStatusPeriod(modifiedState)).toBeNull();
     });
 

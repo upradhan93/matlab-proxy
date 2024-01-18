@@ -12,7 +12,7 @@ export const selectEnvConfig = state => state.envConfig;
 export const selectWsEnv = state => state.serverStatus.wsEnv;
 export const selectSubmittingServerStatus = state => state.serverStatus.isSubmitting;
 export const selectHasFetchedServerStatus = state => state.serverStatus.hasFetched;
-export const selectIsFetchingServerStatus = state => state.serverStatus.isFetching;
+export const selectIsFetchingServerStatus = state => state.serverStatus.isFetchingServerStatus;
 export const selectLicensingInfo = state => state.serverStatus.licensingInfo;
 export const selectServerStatusFetchFailCount = state => state.serverStatus.fetchFailCount;
 export const selectLoadUrl = state => state.loadUrl;
@@ -114,8 +114,8 @@ export const selectFetchStatusPeriod = createSelector(
     selectIsFetchingServerStatus,
     selectIsConcurrencyEnabled,
     selectIsConcurrent,
-    (isSubmitting, isFetching, isConcurrencyEnabled, isConcurrent) => {
-        if (isSubmitting || isFetching || (isConcurrencyEnabled && isConcurrent)) {
+    (isSubmitting, isFetchingServerStatus, isConcurrencyEnabled, isConcurrent) => {
+        if (isSubmitting || isFetchingServerStatus || (isConcurrencyEnabled && isConcurrent)) {
             return null;
         }
         return statusPeriodInMS; // milliseconds

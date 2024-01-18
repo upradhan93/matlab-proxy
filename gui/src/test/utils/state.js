@@ -14,7 +14,7 @@ const state = {
       wsEnv: 'integ',
       isSubmitting: true,
       hasFetched: false,
-      isFetching: false,
+      isFetchingServerStatus: false,
       licensingInfo: {
         type: 'mhlm',
         emailAddress: 'abc@mathworks.com',
