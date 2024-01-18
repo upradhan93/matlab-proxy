@@ -28,6 +28,9 @@ export const selectIsConcurrencyEnabled = state => state.sessionStatus.isConcurr
 export const selectWasEverActive = state => state.sessionStatus.wasEverActive;
 export const selectClientId = state => state.sessionStatus.clientId;
 
+export const statusPeriodInMS = 1000;
+export const maxRequestFailCount = 60;
+
 export const selectTriggerPosition = createSelector(
     state => state.triggerPosition,
     pos => pos === null ? undefined : pos
@@ -57,7 +60,7 @@ export const selectIsConnectionError = createSelector(
         if (isConcurrencyEnabled && isConcurrent) {
             return fails >= 1
         }
-        return fails >= 60
+        return fails >= maxRequestFailCount
     }
 );
 
@@ -115,7 +118,7 @@ export const selectFetchStatusPeriod = createSelector(
         if (isSubmitting || isFetching || (isConcurrencyEnabled && isConcurrent)) {
             return null;
         }
-        return 1000;
+        return statusPeriodInMS; // milliseconds
     }
 );
 

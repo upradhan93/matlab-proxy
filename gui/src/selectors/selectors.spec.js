@@ -1,7 +1,8 @@
 // Copyright 2020-2024 The MathWorks, Inc.
 
 import * as selectors from './index';
-import state from '../test/utils/state'
+import state from '../test/utils/state';
+import { statusPeriodInMS, maxRequestFailCount } from './index';
 const _ = require('lodash');
 
 describe('selectors', () => {
@@ -118,22 +119,22 @@ describe('selectors', () => {
       expect(selectIsError(modifiedState)).toBe(true);
     });
 
-    test('selectIsConnectionError should return false when fetch fail count is < 60', () => {
+    test('selectIsConnectionError should return false when fetch fail count is less than maxRequestFailCount', () => {
       expect(selectIsConnectionError(state)).toBe(false);
     });
 
-    test('selectIsConnectionError should return true when fetch fail count is >= 60', () => {
+    test('selectIsConnectionError should return true when fetch fail count exceeds or becomes equal to maxRequestFailCount', () => {
 
       modifiedState = _.cloneDeep(state);
-      modifiedState.serverStatus.fetchFailCount = 61;
+      modifiedState.serverStatus.fetchFailCount = maxRequestFailCount;
       expect(selectIsConnectionError(modifiedState)).toBe(true);
     });
 
-    test('selectIsConnectionError should return true when fetch fail count is >=1 if the current session is a concurrent session', () => {
+    test('selectIsConnectionError should return true when fetch request fails even once if the current session is a concurrent session', () => {
       modifiedState = _.cloneDeep(state);
       modifiedState.sessionStatus.isActiveClient = false;
       modifiedState.sessionStatus.isConcurrencyEnabled = true;
-      modifiedState.serverStatus.fetchFailCount = 2;
+      modifiedState.serverStatus.fetchFailCount = 1;
       expect(selectIsConnectionError(modifiedState)).toBe(true);
     });
 
@@ -277,11 +278,11 @@ describe('selectors', () => {
       expect(selectFetchStatusPeriod(modifiedState)).toBeNull();
     });
 
-    test('selectFetchStatusPeriod should return 1000ms when matlab is up ', () => {
+    test('selectFetchStatusPeriod should return statusPeriodInMS when matlab is up ', () => {
       modifiedState = _.cloneDeep(state);
       modifiedState.serverStatus.isSubmitting = false;
       modifiedState.sessionStatus.isActiveClient = true;
-      expect(selectFetchStatusPeriod(modifiedState)).toBe(1000);
+      expect(selectFetchStatusPeriod(modifiedState)).toBe(statusPeriodInMS);
     });
 
     test('selectLicensingProvided should return true if licensingInfo has property type else false', () => {
