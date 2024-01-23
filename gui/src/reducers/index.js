@@ -228,6 +228,7 @@ export function isFetchingServerStatus(state = false, action) {
         case REQUEST_SERVER_STATUS:
             return true;
         case RECEIVE_SERVER_STATUS:
+        case RECEIVE_ERROR:
             return false;
         default:
             return state;
