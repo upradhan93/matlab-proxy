@@ -2,7 +2,7 @@
 
 import * as selectors from './index';
 import state from '../test/utils/state';
-import { statusPeriodInMS, maxRequestFailCount } from './index';
+import { STATUS_REQUEST_INTERVAL_MS, MAX_REQUEST_FAIL_COUNT } from './index';
 const _ = require('lodash');
 
 describe('selectors', () => {
@@ -119,14 +119,14 @@ describe('selectors', () => {
       expect(selectIsError(modifiedState)).toBe(true);
     });
 
-    test('selectIsConnectionError should return false when fetch fail count is less than maxRequestFailCount', () => {
+    test('selectIsConnectionError should return false when fetch fail count is less than MAX_REQUEST_FAIL_COUNT', () => {
       expect(selectIsConnectionError(state)).toBe(false);
     });
 
-    test('selectIsConnectionError should return true when fetch fail count exceeds or becomes equal to maxRequestFailCount', () => {
+    test('selectIsConnectionError should return true when fetch fail count exceeds or becomes equal to MAX_REQUEST_FAIL_COUNT', () => {
 
       modifiedState = _.cloneDeep(state);
-      modifiedState.serverStatus.fetchFailCount = maxRequestFailCount;
+      modifiedState.serverStatus.fetchFailCount = MAX_REQUEST_FAIL_COUNT;
       expect(selectIsConnectionError(modifiedState)).toBe(true);
     });
 
@@ -278,11 +278,11 @@ describe('selectors', () => {
       expect(selectFetchStatusPeriod(modifiedState)).toBeNull();
     });
 
-    test('selectFetchStatusPeriod should return statusPeriodInMS when matlab is up ', () => {
+    test('selectFetchStatusPeriod should return STATUS_REQUEST_INTERVAL_MS when matlab is up ', () => {
       modifiedState = _.cloneDeep(state);
       modifiedState.serverStatus.isSubmitting = false;
       modifiedState.sessionStatus.isActiveClient = true;
-      expect(selectFetchStatusPeriod(modifiedState)).toBe(statusPeriodInMS);
+      expect(selectFetchStatusPeriod(modifiedState)).toBe(STATUS_REQUEST_INTERVAL_MS);
     });
 
     test('selectLicensingProvided should return true if licensingInfo has property type else false', () => {
