@@ -1,6 +1,7 @@
 // Copyright 2020-2024 The MathWorks, Inc.
 
 import { createSelector } from 'reselect';
+import { STATUS_REQUEST_INTERVAL_MS, MAX_REQUEST_FAIL_COUNT } from '../constants';
 
 export const selectTutorialHidden = state => state.tutorialHidden;
 export const selectServerStatus = state => state.serverStatus;
@@ -27,11 +28,6 @@ export const selectIsActiveClient = state => state.sessionStatus.isActiveClient;
 export const selectIsConcurrencyEnabled = state => state.sessionStatus.isConcurrencyEnabled; 
 export const selectWasEverActive = state => state.sessionStatus.wasEverActive;
 export const selectClientId = state => state.sessionStatus.clientId;
-
-// Time Interval in milliseconds between subsequent 'get_status' requests
-export const STATUS_REQUEST_INTERVAL_MS = 1000;
-// Maximum number of consecutive failed requests allowed before triggering a connection error
-export const MAX_REQUEST_FAIL_COUNT = 60;
 
 export const selectTriggerPosition = createSelector(
     state => state.triggerPosition,

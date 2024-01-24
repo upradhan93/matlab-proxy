@@ -2,7 +2,7 @@
 
 import * as selectors from './index';
 import state from '../test/utils/state';
-import { STATUS_REQUEST_INTERVAL_MS, MAX_REQUEST_FAIL_COUNT } from './index';
+import { STATUS_REQUEST_INTERVAL_MS, MAX_REQUEST_FAIL_COUNT } from '../constants';
 const _ = require('lodash');
 
 describe('selectors', () => {
@@ -119,11 +119,11 @@ describe('selectors', () => {
       expect(selectIsError(modifiedState)).toBe(true);
     });
 
-    test('selectIsConnectionError should return false when fetch fail count is less than MAX_REQUEST_FAIL_COUNT', () => {
+    test(`selectIsConnectionError should return false when fetch fail count is less than ${MAX_REQUEST_FAIL_COUNT}`, () => {
       expect(selectIsConnectionError(state)).toBe(false);
     });
 
-    test('selectIsConnectionError should return true when fetch fail count exceeds or becomes equal to MAX_REQUEST_FAIL_COUNT', () => {
+    test(`selectIsConnectionError should return true when fetch fail count exceeds or becomes equal to ${MAX_REQUEST_FAIL_COUNT}`, () => {
 
       modifiedState = _.cloneDeep(state);
       modifiedState.serverStatus.fetchFailCount = MAX_REQUEST_FAIL_COUNT;
@@ -278,7 +278,7 @@ describe('selectors', () => {
       expect(selectFetchStatusPeriod(modifiedState)).toBeNull();
     });
 
-    test('selectFetchStatusPeriod should return STATUS_REQUEST_INTERVAL_MS when matlab is up ', () => {
+    test(`selectFetchStatusPeriod should return ${STATUS_REQUEST_INTERVAL_MS} when matlab is up `, () => {
       modifiedState = _.cloneDeep(state);
       modifiedState.serverStatus.isSubmitting = false;
       modifiedState.sessionStatus.isActiveClient = true;

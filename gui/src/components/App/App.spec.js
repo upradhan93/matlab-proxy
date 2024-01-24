@@ -5,7 +5,7 @@ import { render, fireEvent } from '../../test/utils/react-test';
 import App from './index';
 import * as actionCreators from '../../actionCreators';
 import state from '../../test/utils/state';
-import { MAX_REQUEST_FAIL_COUNT } from '../../selectors';
+import { MAX_REQUEST_FAIL_COUNT } from '../../constants';
 
 const _ = require("lodash");
 
