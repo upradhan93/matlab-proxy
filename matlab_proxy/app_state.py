@@ -78,8 +78,8 @@ class AppState:
         }
 
         self.licensing = None
+        # MATLAB process related tasks which have the same lifetime as MATLAB
         self.tasks = {}
-        self.server_tasks = {}
         self.logs = {
             "matlab": deque(maxlen=200),
         }
@@ -103,6 +103,7 @@ class AppState:
         self.embedded_connector_state = "down"
 
         self.__matlab_state = "down"
+        self.__allowed_to_update_state = True
 
         # Specific to concurrent session and is used to track the active client/s that are currently
         # connected to the backend
@@ -110,7 +111,7 @@ class AppState:
 
         loop = util.get_event_loop()
 
-        # Start the server task of tracking MATLAB
+        # matlab-proxy server related tasks which have the same lifetime as the server
         self.server_tasks = {
             "update_matlab_task": loop.create_task(self.__update_matlab_state())
         }
@@ -257,15 +258,16 @@ class AppState:
         this_task = "update_matlab_state"
         logger.info(f"{this_task}: Starting task...")
         while True:
-            if not self._are_required_processes_ready():
-                logger.debug(f"{this_task}: Required processes are not ready yet")
-                self.__matlab_state = "down"
+            if self.__allowed_to_update_state:
+                if not self._are_required_processes_ready():
+                    logger.debug(f"{this_task}: Required processes are not ready yet")
+                    self.__matlab_state = "down"
 
-            else:
-                await self._update_matlab_connector_status()
-                logger.debug(
-                    f"{this_task}: Embedded Connector status is '{self.get_matlab_state()}'"
-                )
+                else:
+                    logger.debug(
+                        f"{this_task}: Required processes are ready, checking status of Embedded Connector"
+                    )
+                    await self._update_matlab_connector_status()
 
             await asyncio.sleep(CHECK_MATLAB_STATUS_INTERVAL)
 
@@ -1025,6 +1027,10 @@ class AppState:
         self.error = None
         self.logs["matlab"].clear()
 
+        self.__allowed_to_update_state = False 
+        logger.debug("Temporarily disabling update_matlab_state task when starting MATLAB")
+        self.__matlab_state = "starting"
+
         # Start Xvfb process on linux if possible
         if system.is_linux() and self.settings["is_xvfb_available"]:
             xvfb = await self.__start_xvfb_process()
@@ -1083,6 +1089,9 @@ class AppState:
         self.tasks["update_matlab_port"] = loop.create_task(
             self.__update_matlab_port(self.MATLAB_PORT_CHECK_DELAY_IN_SECONDS)
         )
+
+        self.__allowed_to_update_state = True
+        logger.debug("Resuming update_matlab_state task after starting MATLAB")
 
     """
     async def __send_terminate_integration_request(self):
@@ -1175,6 +1184,13 @@ class AppState:
 
     async def stop_matlab(self, force_quit=False):
         """Terminate MATLAB."""
+
+
+        matlab_state = self.get_matlab_state()
+
+        self.__allowed_to_update_state = False 
+        self.__matlab_state = "stopping"
+        logger.debug("Temporarily disabling update_matlab_state task when stopping MATLAB")
 
         # Clean up session files which determine various states of the server &/ MATLAB.
         # Do this first as stopping MATLAB/Xvfb takes longer and may fail
@@ -1300,6 +1316,9 @@ class AppState:
         # Update matlab_port information in the event of intentionally stopping MATLAB
         self.matlab_port = None
         logger.debug("Completed Shutdown!!!")
+
+        self.__allowed_to_update_state = True
+        logger.debug("Resuming update_matlab_state task after stopping MATLAB")
 
     async def handle_matlab_output(self):
         """Parse MATLAB output from stdout and raise errors if any."""
