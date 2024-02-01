@@ -56,6 +56,7 @@ def app_state_fixture(sample_settings_fixture, loop):
 
     yield app_state
 
+    # loop.run_until_complete(app_state.stop_server_tasks())
     for _, task in list(app_state.server_tasks.items()):
         if task:
             try:
@@ -367,6 +368,7 @@ async def test_update_matlab_status_based_on_connector_status(
 
     Args:
         mocker : Built in pytest fixture.
+        app_state_fixture (AppState): Instance of the AppState class with defaults.
         connector_status (str): Status of Embedded Connector.
         ready_file_present (bool): Represents if the ready file has been created or not.
         matlab_status (str): Represents the status of MATLAB process.
@@ -412,9 +414,9 @@ async def test_update_matlab_connector_status_matlab_ready_file(
     app_state_fixture.matlab_session_files["matlab_ready_file"] = matlab_ready_file
 
     # Act
-    # Nothing to act upon as the _update_matlab_connector_status() is started automatically
+    # Nothing to act upon as the _update_matlab_connector_status() is started automatically in the constructor.
     # Have to wait here for the atleast the same interval as the _update_matlab_connector_status()
-    # for the status to update from 'down' (initialized value in the constructor)
+    # for the MATLAB status to update from 'down'
     await asyncio.sleep(CHECK_MATLAB_STATUS_INTERVAL)
 
     # Assert
@@ -528,11 +530,13 @@ async def test_requests_sent_by_matlab_proxy_have_headers(
     )
     mocked_req = mocker.patch("aiohttp.ClientSession.request", return_value=mock_resp)
 
+    # Patching to make _are_required_processes_ready() to return True
     mocker.patch.object(
         AppState,
         "_are_required_processes_ready",
         return_value=True,
     )
+    # Patching to make get_matlab_state() to return up
     mocker.patch.object(
         AppState,
         "get_matlab_state",
@@ -545,6 +549,9 @@ async def test_requests_sent_by_matlab_proxy_have_headers(
     await app_state_with_token_auth_fixture._AppState__send_stop_request_to_matlab()
 
     # Assert
+
+    # 1 request from _update_matlab_connector_status() and another from
+    # /stop_matlab request
     connector_status_request_headers = list(mocked_req.call_args_list)[0].kwargs[
         "headers"
     ]
