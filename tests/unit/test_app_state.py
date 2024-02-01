@@ -56,14 +56,7 @@ def app_state_fixture(sample_settings_fixture, loop):
 
     yield app_state
 
-    # loop.run_until_complete(app_state.stop_server_tasks())
-    for _, task in list(app_state.server_tasks.items()):
-        if task:
-            try:
-                task.cancel()
-                loop.run_until_complete(task)
-            except asyncio.CancelledError:
-                pass
+    loop.run_until_complete(app_state.stop_server_tasks())
 
 
 @pytest.fixture
