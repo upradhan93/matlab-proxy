@@ -103,6 +103,8 @@ class AppState:
         self.embedded_connector_state = "down"
 
         self.__matlab_state = "down"
+
+        # Variable to control whether the status of MATLAB needs to be updated.
         self.__allowed_to_update_state = True
 
         # Specific to concurrent session and is used to track the active client/s that are currently
@@ -281,7 +283,7 @@ class AppState:
         return self.__matlab_state
 
     async def stop_server_tasks(self):
-        # Canceling all the async tasks in the list
+        """Stops all matlab-proxy server tasks"""
         for name, task in list(self.server_tasks.items()):
             if task:
                 try:
@@ -1014,6 +1016,7 @@ class AppState:
                 f"MATLAB Ready file successfully read, matlab_port set to: {self.matlab_port}"
             )
 
+    @decorator
     async def start_matlab(self, restart_matlab=False):
         """Start MATLAB.
 
@@ -1027,10 +1030,12 @@ class AppState:
         self.error = None
         self.logs["matlab"].clear()
 
+        # Disable updating MATLAB state by _update_matlab_state task until MATLAB starts
         self.__allowed_to_update_state = False
         logger.debug(
             "Temporarily disabling update_matlab_state task when starting MATLAB"
         )
+        # Update the MATLAB state
         self.__matlab_state = "starting"
 
         # Start Xvfb process on linux if possible
