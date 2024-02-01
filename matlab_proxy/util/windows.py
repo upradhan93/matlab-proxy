@@ -1,5 +1,6 @@
 # Copyright 2022-2023 The MathWorks, Inc.
 import asyncio
+from matlab_proxy.util import system
 
 from matlab_proxy import util
 from matlab_proxy.util import mwi

@@ -25,3 +25,5 @@ SUPPORTED_MATLAB_VERSIONS: Final[List[str]] = [
 
 # This constant when set to True restricts the number of active sessions to one
 IS_CONCURRENCY_CHECK_ENABLED: Final[bool] = True
+
+CHECK_MATLAB_STATUS_INTERVAL: Final[int] = 1
