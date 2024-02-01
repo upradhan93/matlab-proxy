@@ -280,6 +280,17 @@ class AppState:
 
         return self.__matlab_state
 
+    async def stop_server_tasks(self):
+        # Canceling all the async tasks in the list
+        for name, task in list(self.server_tasks.items()):
+            if task:
+                try:
+                    task.cancel()
+                    await task
+                    logger.debug(f"{name} task stopped successfully")
+                except asyncio.CancelledError:
+                    pass
+
     def _are_required_processes_ready(
         self, matlab_process=None, xvfb_process=None
     ) -> bool:

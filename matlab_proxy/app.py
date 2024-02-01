@@ -741,8 +741,8 @@ async def cleanup_background_tasks(app):
     # Stop any running async tasks
     logger = mwi.logger.get()
     # Cleanup server tasks and Appstate tasks
-    tasks = {**state.tasks, **state.server_tasks}
-    for task_name, task in tasks.items():
+    # tasks = {**state.tasks, **state.server_tasks}
+    for task_name, task in state.tasks.items():
         if not task.cancelled():
             logger.debug(f"Cancelling MWI task: {task_name} : {task} ")
             task.cancel()
