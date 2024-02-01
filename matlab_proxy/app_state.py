@@ -264,10 +264,10 @@ class AppState:
                     self.__matlab_state = "down"
 
                 else:
-                    logger.debug(
-                        f"{this_task}: Required processes are ready, checking status of Embedded Connector"
-                    )
                     await self._update_matlab_connector_status()
+                    logger.debug(
+                        f"{this_task}: Required processes are ready, Embedded Connector status is '{self.get_matlab_state()}'"
+                    )
 
             await asyncio.sleep(CHECK_MATLAB_STATUS_INTERVAL)
 
@@ -279,17 +279,6 @@ class AppState:
         """
 
         return self.__matlab_state
-
-    async def stop_server_tasks(self):
-        # Canceling all the async tasks in the list
-        for name, task in list(self.server_tasks.items()):
-            if task:
-                try:
-                    task.cancel()
-                    await task
-                    logger.debug(f"{name} task stopped successfully")
-                except asyncio.CancelledError:
-                    pass
 
     def _are_required_processes_ready(
         self, matlab_process=None, xvfb_process=None
@@ -774,9 +763,9 @@ class AppState:
             logger.info(
                 f"Writing MATLAB process logs to: {matlab_env['MW_DIAGNOSTIC_DEST']}"
             )
-            matlab_env["MW_DIAGNOSTIC_SPEC"] = (
-                "connector::http::server=all;connector::lifecycle=all"
-            )
+            matlab_env[
+                "MW_DIAGNOSTIC_SPEC"
+            ] = "connector::http::server=all;connector::lifecycle=all"
 
         # TODO Introduce a warmup flag to enable this?
         # matlab_env["CONNECTOR_CONFIGURABLE_WARMUP_TASKS"] = "warmup_hgweb"
@@ -1027,8 +1016,10 @@ class AppState:
         self.error = None
         self.logs["matlab"].clear()
 
-        self.__allowed_to_update_state = False 
-        logger.debug("Temporarily disabling update_matlab_state task when starting MATLAB")
+        self.__allowed_to_update_state = False
+        logger.debug(
+            "Temporarily disabling update_matlab_state task when starting MATLAB"
+        )
         self.__matlab_state = "starting"
 
         # Start Xvfb process on linux if possible
@@ -1185,12 +1176,13 @@ class AppState:
     async def stop_matlab(self, force_quit=False):
         """Terminate MATLAB."""
 
-
         matlab_state = self.get_matlab_state()
 
-        self.__allowed_to_update_state = False 
+        self.__allowed_to_update_state = False
         self.__matlab_state = "stopping"
-        logger.debug("Temporarily disabling update_matlab_state task when stopping MATLAB")
+        logger.debug(
+            "Temporarily disabling update_matlab_state task when stopping MATLAB"
+        )
 
         # Clean up session files which determine various states of the server &/ MATLAB.
         # Do this first as stopping MATLAB/Xvfb takes longer and may fail
@@ -1215,7 +1207,7 @@ class AppState:
                 # OR
                 # When force_quit is set to True
                 # directly terminate the MATLAB process instead.
-                if self.get_matlab_state() == "starting" or force_quit:
+                if matlab_state == "starting" or force_quit:
                     logger.debug("Forcing the MATLAB process to terminate...")
                     matlab.terminate()
                     waiters.append(matlab.wait())
@@ -1247,7 +1239,7 @@ class AppState:
             else:
                 # In a windows system
                 if system.is_windows() and matlab.is_running():
-                    if self.get_matlab_state() == "starting" or force_quit:
+                    if matlab_state == "starting" or force_quit:
                         matlab.terminate()
                         matlab.wait()
 
