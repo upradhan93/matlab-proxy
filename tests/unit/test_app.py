@@ -53,36 +53,36 @@ def get_connection_string():
     return "nlm@localhost.com"
 
 
-# async def wait_for_matlab_to_be_up(test_server, sleep_seconds):
-#     """Checks at max five times for the MATLAB status to be up and throws ConnectionError
-#     if MATLAB status is not up.
+async def wait_for_matlab_to_be_up(test_server, sleep_seconds):
+    """Checks at max five times for the MATLAB status to be up and throws ConnectionError
+    if MATLAB status is not up.
 
-#     This function mitigates the scenario where the tests may try to send the request
-#     to the test server and the MATLAB status is not up yet which may cause the test to fail
-#     unexpectedly.
+    This function mitigates the scenario where the tests may try to send the request
+    to the test server and the MATLAB status is not up yet which may cause the test to fail
+    unexpectedly.
 
-#     Use this function if the test intends to wait for the matlab status to be up before
-#     sending any requests.
+    Use this function if the test intends to wait for the matlab status to be up before
+    sending any requests.
 
-#     Args:
-#         test_server (aiohttp_client) : A aiohttp_client server to send HTTP GET request.
-#         sleep_seconds : Seconds to be sent to the asyncio.sleep method
-#     """
+    Args:
+        test_server (aiohttp_client) : A aiohttp_client server to send HTTP GET request.
+        sleep_seconds : Seconds to be sent to the asyncio.sleep method
+    """
 
-#     count = 0
-#     while True:
-#         resp = await test_server.get("/get_status")
-#         assert resp.status == HTTPStatus.OK
+    count = 0
+    while True:
+        resp = await test_server.get("/get_status")
+        assert resp.status == HTTPStatus.OK
 
-#         resp_json = json.loads(await resp.text())
+        resp_json = json.loads(await resp.text())
 
-#         if resp_json["matlab"]["status"] == "up":
-#             break
-#         else:
-#             count += 1
-#             await asyncio.sleep(sleep_seconds)
-#             if count > test_constants.FIVE_MAX_TRIES:
-#                 raise ConnectionError
+        if resp_json["matlab"]["status"] == "up":
+            break
+        else:
+            count += 1
+            await asyncio.sleep(sleep_seconds)
+            if count > test_constants.FIVE_MAX_TRIES:
+                raise ConnectionError
 
 
 @pytest.fixture(
@@ -234,835 +234,839 @@ async def test_get_status_route(test_server):
     assert resp.status == HTTPStatus.OK
 
 
-# async def test_get_env_config(test_server):
-#     """Test to check endpoint : "/get_env_config"
+async def test_get_env_config(test_server):
+    """Test to check endpoint : "/get_env_config"
 
-#     Args:
-#         test_server (aiohttp_client): A aiohttp_client server for sending GET request.
-#     """
-#     expected_json_structure = {
-#         "useMOS": False,
-#         "useMRE": False,
-#         "authentication": {"enabled": False, "status": False},
-#         "matlab": {
-#             "status": "up",
-#             "version": "R2023a",
-#             "supported_versions": ["R2020b", "R2023a"],
-#         },
-#         "doc_url": "foo",
-#         "extension_name": "bar",
-#         "extension_name_short_description": "foobar",
-#         "isConcurrencyEnabled": "foobar",
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server for sending GET request.
+    """
+    expected_json_structure = {
+        "useMOS": False,
+        "useMRE": False,
+        "authentication": {"enabled": False, "status": False},
+        "matlab": {
+            "status": "up",
+            "version": "R2023a",
+            "supported_versions": ["R2020b", "R2023a"],
+        },
+        "doc_url": "foo",
+        "extension_name": "bar",
+        "extension_name_short_description": "foobar",
+        "isConcurrencyEnabled": "foobar",
+    }
+    resp = await test_server.get("/get_env_config")
+    assert resp.status == HTTPStatus.OK
+
+    text = await resp.json()
+    assert text is not None
+    assert set(expected_json_structure.keys()) == set(text.keys())
+
+
+async def test_start_matlab_route(test_server):
+    """Test to check endpoint : "/start_matlab"
+
+    Test waits for matlab status to be "up" before sending the GET request to start matlab
+    Checks whether matlab restarts.
+
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server to send GET request to.
+    """
+    # Waiting for the matlab process to start up.
+    sleep_interval = 1
+    await wait_for_matlab_to_be_up(test_server, sleep_interval)
+
+    # Send get request to end point
+    await test_server.put("/start_matlab")
+
+    # Check if Matlab restarted successfully
+    await __check_for_matlab_status(test_server, ["starting", "up"])
+
+
+async def __check_for_matlab_status(test_server, statuses):
+    count = 0
+    while True:
+        resp = await test_server.get("/get_status")
+        assert resp.status == HTTPStatus.OK
+        resp_json = json.loads(await resp.text())
+        if resp_json["matlab"]["status"] in statuses:
+            break
+        else:
+            count += 1
+            await asyncio.sleep(0.5)
+            if count > test_constants.FIVE_MAX_TRIES:
+                raise ConnectionError
+
+
+async def test_stop_matlab_route(test_server):
+    """Test to check endpoint : "/stop_matlab"
+
+    Sends HTTP DELETE request to stop matlab and checks if matlab status is down.
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server to send HTTP DELETE request.
+    """
+    # Arrange
+
+    # Act
+    resp = await test_server.delete("/stop_matlab")
+    assert resp.status == HTTPStatus.OK
+
+    # Assert
+    # Check if Matlab restarted successfully
+    await __check_for_matlab_status(test_server, ["stopping", "down"])
+
+
+async def test_root_redirect(test_server):
+    """Test to check endpoint : "/"
+
+    Should throw a 404 error. This will look for index.html in root directory of the project
+    (In non-dev mode, root directory is the package)
+    This file will not be available in the expected location in dev mode.
+
+    Args:
+        test_server (aiohttp_client):  A aiohttp_client server to send HTTP GET request.
+
+    """
+    count = 0
+    while True:
+        resp = await test_server.get("/")
+        if resp.status == HTTPStatus.SERVICE_UNAVAILABLE:
+            time.sleep(test_constants.ONE_SECOND_DELAY)
+            count += 1
+        else:
+            assert resp.status == HTTPStatus.NOT_FOUND
+            break
+
+        if count > test_constants.FIVE_MAX_TRIES:
+            raise ConnectionError
+
+
+@pytest.fixture(name="proxy_payload")
+def proxy_payload_fixture():
+    """Pytest fixture which returns a Dict representing the payload.
+
+    Returns:
+        Dict: A Dict representing the payload for HTTP request.
+    """
+    payload = {"messages": {"ClientType": [{"properties": {"TYPE": "jsd"}}]}}
+
+    return payload
+
+
+async def test_matlab_proxy_404(proxy_payload, test_server):
+    """Test to check if test_server is able to proxy HTTP request to fake matlab server
+    for a non-existing file. Should return 404 status code in response
+
+    Args:
+        proxy_payload (Dict): Pytest fixture which returns a Dict.
+        test_server (aiohttp_client): Test server to send HTTP requests.
+    """
+
+    headers = {"content-type": "application/json"}
+
+    # Request a non-existing html file.
+    # Request gets proxied to app.matlab_view() which should raise HTTPNotFound() exception ie. return HTTP status code 404
+
+    count = 0
+    while True:
+        resp = await test_server.post(
+            "./1234.html", data=json.dumps(proxy_payload), headers=headers
+        )
+        if resp.status == HTTPStatus.SERVICE_UNAVAILABLE:
+            time.sleep(test_constants.ONE_SECOND_DELAY)
+            count += 1
+        else:
+            assert resp.status == HTTPStatus.NOT_FOUND
+            break
+
+        if count > test_constants.FIVE_MAX_TRIES:
+            raise ConnectionError
+
+
+async def test_matlab_proxy_http_get_request(proxy_payload, test_server):
+    """Test to check if test_server proxies a HTTP request to fake matlab server and returns
+    the response back
+
+    Args:
+        proxy_payload (Dict): Pytest fixture which returns a Dict representing payload for the HTTP request
+        test_server (aiohttp_client): Test server to send HTTP requests.
+
+    Raises:
+        ConnectionError: If fake matlab server is not reachable from the test server, raises ConnectionError
+    """
+
+    max_tries = 5
+    count = 0
+
+    while True:
+        resp = await test_server.get(
+            "/http_get_request.html", data=json.dumps(proxy_payload)
+        )
+
+        if resp.status in (HTTPStatus.NOT_FOUND, HTTPStatus.SERVICE_UNAVAILABLE):
+            time.sleep(1)
+            count += 1
+
+        else:
+            resp_body = await resp.text()
+            assert json.dumps(proxy_payload) == resp_body
+            break
+
+        if count > max_tries:
+            raise ConnectionError
+
+
+async def test_matlab_proxy_http_put_request(proxy_payload, test_server):
+    """Test to check if test_server proxies a HTTP request to fake matlab server and returns
+    the response back
+
+    Args:
+        proxy_payload (Dict): Pytest fixture which returns a Dict representing payload for the HTTP request
+        test_server (aiohttp_client): Test server to send HTTP requests.
+
+    Raises:
+        ConnectionError: If fake matlab server is not reachable from the test server, raises ConnectionError
+    """
+
+    max_tries = 5
+    count = 0
+
+    while True:
+        resp = await test_server.put(
+            "/http_put_request.html", data=json.dumps(proxy_payload)
+        )
+
+        if resp.status in (HTTPStatus.NOT_FOUND, HTTPStatus.SERVICE_UNAVAILABLE):
+            time.sleep(1)
+            count += 1
+
+        else:
+            resp_body = await resp.text()
+            assert json.dumps(proxy_payload) == resp_body
+            break
+
+        if count > max_tries:
+            raise ConnectionError
+
+
+async def test_matlab_proxy_http_delete_request(proxy_payload, test_server):
+    """Test to check if test_server proxies a HTTP request to fake matlab server and returns
+    the response back
+
+    Args:
+        proxy_payload (Dict): Pytest fixture which returns a Dict representing payload for the HTTP request
+        test_server (aiohttp_client): Test server to send HTTP requests.
+
+    Raises:
+        ConnectionError: If fake matlab server is not reachable from the test server, raises ConnectionError
+    """
+
+    max_tries = 5
+    count = 0
+
+    while True:
+        resp = await test_server.delete(
+            "/http_delete_request.html", data=json.dumps(proxy_payload)
+        )
+
+        if resp.status in (HTTPStatus.NOT_FOUND, HTTPStatus.SERVICE_UNAVAILABLE):
+            time.sleep(1)
+            count += 1
+
+        else:
+            resp_body = await resp.text()
+            assert json.dumps(proxy_payload) == resp_body
+            break
+
+        if count > max_tries:
+            raise ConnectionError
+
+
+async def test_matlab_proxy_http_post_request(proxy_payload, test_server):
+    """Test to check if test_server proxies http post request to fake matlab server.
+    Checks if payload is being modified before proxying.
+    Args:
+        proxy_payload (Dict): Pytest fixture which returns a Dict representing payload for the HTTP Request
+        test_server (aiohttp_client): Test server to send HTTP requests
+
+    Raises:
+        ConnectionError: If unable to proxy to fake matlab server raise Connection error
+    """
+    max_tries = 5
+    count = 0
+
+    while True:
+        resp = await test_server.post(
+            "/messageservice/json/secure",
+            data=json.dumps(proxy_payload),
+        )
+
+        if resp.status in (HTTPStatus.NOT_FOUND, HTTPStatus.SERVICE_UNAVAILABLE):
+            time.sleep(1)
+            count += 1
+
+        else:
+            resp_json = await resp.json()
+            assert set(resp_json.keys()).issubset(proxy_payload.keys())
+            break
+
+        if count > max_tries:
+            raise ConnectionError
+
+
+# While acceessing matlab-proxy directly, the web socket request looks like
+#     {
+#         "connection": "Upgrade",
+#         "Upgrade": "websocket",
 #     }
-#     resp = await test_server.get("/get_env_config")
-#     assert resp.status == HTTPStatus.OK
-
-#     text = await resp.json()
-#     assert text is not None
-#     assert set(expected_json_structure.keys()) == set(text.keys())
-
-
-# async def test_start_matlab_route(test_server):
-#     """Test to check endpoint : "/start_matlab"
-
-#     Test waits for matlab status to be "up" before sending the GET request to start matlab
-#     Checks whether matlab restarts.
-
-#     Args:
-#         test_server (aiohttp_client): A aiohttp_client server to send GET request to.
-#     """
-#     # Waiting for the matlab process to start up.
-#     sleep_interval = 1
-#     await wait_for_matlab_to_be_up(test_server, sleep_interval)
-
-#     # Send get request to end point
-#     await test_server.put("/start_matlab")
-
-#     # Check if Matlab restarted successfully
-#     await check_for_matlab_startup(test_server)
-
-
-# async def check_for_matlab_startup(test_server):
-#     count = 0
-#     while True:
-#         resp = await test_server.get("/get_status")
-#         assert resp.status == HTTPStatus.OK
-#         resp_json = json.loads(await resp.text())
-#         if resp_json["matlab"]["status"] != "down":
-#             break
-#         else:
-#             count += 1
-#             await asyncio.sleep(0.5)
-#             if count > test_constants.FIVE_MAX_TRIES:
-#                 raise ConnectionError
-
-
-# async def test_stop_matlab_route(test_server):
-#     """Test to check endpoint : "/stop_matlab"
-
-#     Sends HTTP DELETE request to stop matlab and checks if matlab status is down.
-#     Args:
-#         test_server (aiohttp_client): A aiohttp_client server to send HTTP DELETE request.
-#     """
-#     resp = await test_server.delete("/stop_matlab")
-#     assert resp.status == HTTPStatus.OK
-
-#     resp_json = json.loads(await resp.text())
-#     assert resp_json["matlab"]["status"] == "down"
-
-
-# async def test_root_redirect(test_server):
-#     """Test to check endpoint : "/"
-
-#     Should throw a 404 error. This will look for index.html in root directory of the project
-#     (In non-dev mode, root directory is the package)
-#     This file will not be available in the expected location in dev mode.
-
-#     Args:
-#         test_server (aiohttp_client):  A aiohttp_client server to send HTTP GET request.
-
-#     """
-#     count = 0
-#     while True:
-#         resp = await test_server.get("/")
-#         if resp.status == HTTPStatus.SERVICE_UNAVAILABLE:
-#             time.sleep(test_constants.ONE_SECOND_DELAY)
-#             count += 1
-#         else:
-#             assert resp.status == HTTPStatus.NOT_FOUND
-#             break
-
-#         if count > test_constants.FIVE_MAX_TRIES:
-#             raise ConnectionError
-
-
-# @pytest.fixture(name="proxy_payload")
-# def proxy_payload_fixture():
-#     """Pytest fixture which returns a Dict representing the payload.
-
-#     Returns:
-#         Dict: A Dict representing the payload for HTTP request.
-#     """
-#     payload = {"messages": {"ClientType": [{"properties": {"TYPE": "jsd"}}]}}
-
-#     return payload
-
-
-# async def test_matlab_proxy_404(proxy_payload, test_server):
-#     """Test to check if test_server is able to proxy HTTP request to fake matlab server
-#     for a non-existing file. Should return 404 status code in response
-
-#     Args:
-#         proxy_payload (Dict): Pytest fixture which returns a Dict.
-#         test_server (aiohttp_client): Test server to send HTTP requests.
-#     """
-
-#     headers = {"content-type": "application/json"}
-
-#     # Request a non-existing html file.
-#     # Request gets proxied to app.matlab_view() which should raise HTTPNotFound() exception ie. return HTTP status code 404
-
-#     count = 0
-#     while True:
-#         resp = await test_server.post(
-#             "./1234.html", data=json.dumps(proxy_payload), headers=headers
-#         )
-#         if resp.status == HTTPStatus.SERVICE_UNAVAILABLE:
-#             time.sleep(test_constants.ONE_SECOND_DELAY)
-#             count += 1
-#         else:
-#             assert resp.status == HTTPStatus.NOT_FOUND
-#             break
-
-#         if count > test_constants.FIVE_MAX_TRIES:
-#             raise ConnectionError
-
-
-# async def test_matlab_proxy_http_get_request(proxy_payload, test_server):
-#     """Test to check if test_server proxies a HTTP request to fake matlab server and returns
-#     the response back
-
-#     Args:
-#         proxy_payload (Dict): Pytest fixture which returns a Dict representing payload for the HTTP request
-#         test_server (aiohttp_client): Test server to send HTTP requests.
-
-#     Raises:
-#         ConnectionError: If fake matlab server is not reachable from the test server, raises ConnectionError
-#     """
-
-#     max_tries = 5
-#     count = 0
-
-#     while True:
-#         resp = await test_server.get(
-#             "/http_get_request.html", data=json.dumps(proxy_payload)
-#         )
-
-#         if resp.status in (HTTPStatus.NOT_FOUND, HTTPStatus.SERVICE_UNAVAILABLE):
-#             time.sleep(1)
-#             count += 1
-
-#         else:
-#             resp_body = await resp.text()
-#             assert json.dumps(proxy_payload) == resp_body
-#             break
-
-#         if count > max_tries:
-#             raise ConnectionError
-
-
-# async def test_matlab_proxy_http_put_request(proxy_payload, test_server):
-#     """Test to check if test_server proxies a HTTP request to fake matlab server and returns
-#     the response back
-
-#     Args:
-#         proxy_payload (Dict): Pytest fixture which returns a Dict representing payload for the HTTP request
-#         test_server (aiohttp_client): Test server to send HTTP requests.
-
-#     Raises:
-#         ConnectionError: If fake matlab server is not reachable from the test server, raises ConnectionError
-#     """
-
-#     max_tries = 5
-#     count = 0
-
-#     while True:
-#         resp = await test_server.put(
-#             "/http_put_request.html", data=json.dumps(proxy_payload)
-#         )
-
-#         if resp.status in (HTTPStatus.NOT_FOUND, HTTPStatus.SERVICE_UNAVAILABLE):
-#             time.sleep(1)
-#             count += 1
-
-#         else:
-#             resp_body = await resp.text()
-#             assert json.dumps(proxy_payload) == resp_body
-#             break
-
-#         if count > max_tries:
-#             raise ConnectionError
-
-
-# async def test_matlab_proxy_http_delete_request(proxy_payload, test_server):
-#     """Test to check if test_server proxies a HTTP request to fake matlab server and returns
-#     the response back
-
-#     Args:
-#         proxy_payload (Dict): Pytest fixture which returns a Dict representing payload for the HTTP request
-#         test_server (aiohttp_client): Test server to send HTTP requests.
-
-#     Raises:
-#         ConnectionError: If fake matlab server is not reachable from the test server, raises ConnectionError
-#     """
-
-#     max_tries = 5
-#     count = 0
-
-#     while True:
-#         resp = await test_server.delete(
-#             "/http_delete_request.html", data=json.dumps(proxy_payload)
-#         )
-
-#         if resp.status in (HTTPStatus.NOT_FOUND, HTTPStatus.SERVICE_UNAVAILABLE):
-#             time.sleep(1)
-#             count += 1
-
-#         else:
-#             resp_body = await resp.text()
-#             assert json.dumps(proxy_payload) == resp_body
-#             break
-
-#         if count > max_tries:
-#             raise ConnectionError
-
-
-# async def test_matlab_proxy_http_post_request(proxy_payload, test_server):
-#     """Test to check if test_server proxies http post request to fake matlab server.
-#     Checks if payload is being modified before proxying.
-#     Args:
-#         proxy_payload (Dict): Pytest fixture which returns a Dict representing payload for the HTTP Request
-#         test_server (aiohttp_client): Test server to send HTTP requests
-
-#     Raises:
-#         ConnectionError: If unable to proxy to fake matlab server raise Connection error
-#     """
-#     max_tries = 5
-#     count = 0
-
-#     while True:
-#         resp = await test_server.post(
-#             "/messageservice/json/secure",
-#             data=json.dumps(proxy_payload),
-#         )
-
-#         if resp.status in (HTTPStatus.NOT_FOUND, HTTPStatus.SERVICE_UNAVAILABLE):
-#             time.sleep(1)
-#             count += 1
-
-#         else:
-#             resp_json = await resp.json()
-#             assert set(resp_json.keys()).issubset(proxy_payload.keys())
-#             break
-
-#         if count > max_tries:
-#             raise ConnectionError
-
-
-# # While acceessing matlab-proxy directly, the web socket request looks like
-# #     {
-# #         "connection": "Upgrade",
-# #         "Upgrade": "websocket",
-# #     }
-# # whereas while accessing matlab-proxy with nginx as the reverse proxy, the nginx server
-# # modifies the web socket request to
-# #     {
-# #         "connection": "upgrade",
-# #         "upgrade": "websocket",
-# #     }
-
-
-# async def test_set_licensing_info_put_nlm(test_server):
-#     """Test to check endpoint : "/set_licensing_info"
-
-#     Test which sends HTTP PUT request with NLM licensing information.
-#     Args:
-#         test_server (aiohttp_client): A aiohttp_client server to send HTTP GET request.
-#     """
-
-#     data = {
-#         "type": "nlm",
-#         "status": "starting",
-#         "version": "R2020b",
-#         "connectionString": "123@nlm",
-#     }
-#     resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
-#     assert resp.status == HTTPStatus.OK
-
-
-# async def test_set_licensing_info_put_invalid_license(test_server):
-#     """Test to check endpoint : "/set_licensing_info"
-
-#     Test which sends HTTP PUT request with INVALID licensing information type.
-#     Args:
-#         test_server (aiohttp_client): A aiohttp_client server to send HTTP GET request.
-#     """
-
-#     data = {
-#         "type": "INVALID_TYPE",
-#         "status": "starting",
-#         "version": "R2020b",
-#         "connectionString": "123@nlm",
-#     }
-#     resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
-#     assert resp.status == HTTPStatus.BAD_REQUEST
-
-
-# @pytest.mark.parametrize(
-#     "headers",
-#     [
-#         {
-#             "connection": "Upgrade",
-#             "Upgrade": "websocket",
-#         },
-#         {
-#             "connection": "upgrade",
-#             "upgrade": "websocket",
-#         },
-#     ],
-#     ids=["Uppercase header", "Lowercase header"],
-# )
-# async def test_matlab_proxy_web_socket(test_server, headers):
-#     """Test to check if test_server proxies web socket request to fake matlab server
-
-#     Args:
-#         test_server (aiohttp_client): Test Server to send HTTP Requests.
-#     """
-
-#     sleep_interval = 1
-#     await wait_for_matlab_to_be_up(test_server, sleep_interval)
-#     resp = await test_server.ws_connect("/http_ws_request.html/", headers=headers)
-#     text = await resp.receive()
-#     websocket_response_string = (
-#         "Hello world"  # This string is set by the web_socket_handler in devel.py
-#     )
-#     assert text.type == aiohttp.WSMsgType.TEXT
-#     assert text.data == websocket_response_string
-
-
-# async def test_set_licensing_info_put_mhlm(test_server):
-#     """Test to check endpoint : "/set_licensing_info"
-
-#     Test which sends HTTP PUT request with MHLM licensing information.
-#     Args:
-#         test_server (aiohttp_client): A aiohttp_client server to send HTTP GET request.
-#     """
-#     # FIXME: This test is talking to production loginws endpoint and is resulting in an exception.
-#     # TODO: Use mocks to test the mhlm workflows is working as expected
-#     data = {
-#         "type": "mhlm",
-#         "status": "starting",
-#         "version": "R2020b",
-#         "token": "123@nlm",
-#         "emailaddress": "123@nlm",
-#         "sourceId": "123@nlm",
-#     }
-#     resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
-#     assert resp.status == HTTPStatus.OK
-
-
-# async def test_set_licensing_info_put_existing_license(test_server):
-#     """Test to check endpoint : "/set_licensing_info"
-
-#     Test which sends HTTP PUT request with local licensing information.
-#     Args:
-#         test_server (aiohttp_client): A aiohttp_client server to send HTTP GET request.
-#     """
-
-#     data = {"type": "existing_license"}
-#     resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
-#     assert resp.status == HTTPStatus.OK
-
-
-# async def test_set_licensing_info_delete(test_server):
-#     """Test to check endpoint : "/set_licensing_info"
-
-#     Test which sends HTTP DELETE request to remove licensing. Checks if licensing is set to None
-#     After request is sent.
-#     Args:
-#         test_server (aiohttp_client):  A aiohttp_client server to send HTTP GET request.
-#     """
-
-#     resp = await test_server.delete("/set_licensing_info")
-#     resp_json = json.loads(await resp.text())
-#     assert resp.status == HTTPStatus.OK and resp_json["licensing"] is None
-
-
-# async def test_set_termination_integration_delete(test_server):
-#     """Test to check endpoint : "/terminate_integration"
-
-#     Test which sends HTTP DELETE request to terminate integration. Checks if integration is terminated
-#     successfully.
-#     Args:
-#         test_server (aiohttp_client):  A aiohttp_client server to send HTTP GET request.
-#     """
-#     try:
-#         resp = await test_server.delete("/terminate_integration")
-#         resp_json = json.loads(await resp.text())
-#         assert resp.status == HTTPStatus.OK and resp_json["loadUrl"] == "../"
-#     except ProcessLookupError:
-#         pass
-
-
-# def test_get_access_url(test_server):
-#     """Should return a url with 127.0.0.1 in test mode
-
-#     Args:
-#         test_server (aiohttp.web.Application): Application Server
-#     """
-#     assert "127.0.0.1" in util.get_access_url(test_server.app)
-
-
-# @pytest.fixture(name="non_test_env")
-# def non_test_env_fixture(monkeypatch):
-#     """Monkeypatches MWI_TEST env var to false
-
-#     Args:
-#         monkeypatch (_pytest.monkeypatch.MonkeyPatch): To monkeypatch env vars
-#     """
-#     monkeypatch.setenv(mwi_env.get_env_name_testing(), "false")
-
-
-# @pytest.fixture(name="non_default_host_interface")
-# def non_default_host_interface_fixture(monkeypatch):
-#     """Monkeypatches MWI_TEST env var to false
-
-#     Args:
-#         monkeypatch (_pytest.monkeypatch.MonkeyPatch): To monkeypatch env vars
-#     """
-#     monkeypatch.setenv(mwi_env.get_env_name_app_host(), "0.0.0.0")
-
-
-# # For pytest fixtures, order of arguments matter.
-# # First set the default host interface to a non-default value
-# # Then set MWI_TEST to false and then create an instance of the test_server
-# # This order will set the test_server with appropriate values.
-
-
-# @pytest.mark.skipif(
-#     platform.system() == "Linux" or platform.system() == "Darwin",
-#     reason="Testing the windows access URL",
-# )
-# def test_get_access_url_non_dev_windows(
-#     non_default_host_interface, non_test_env, test_server
-# ):
-#     """Test to check access url to be 127.0.0.1 in non-dev mode on Windows"""
-#     assert "127.0.0.1" in util.get_access_url(test_server.app)
-
-
-# @pytest.mark.skipif(
-#     platform.system() == "Windows", reason="Testing the non-Windows access URL"
-# )
-# def test_get_access_url_non_dev_posix(
-#     non_default_host_interface, non_test_env, test_server
-# ):
-#     """Test to check access url to be 0.0.0.0 in non-dev mode on Linux/Darwin"""
-#     assert "0.0.0.0" in util.get_access_url(test_server.app)
-
-
-# @pytest.fixture(name="set_licensing_info_mock_fetch_single_entitlement")
-# def set_licensing_info_mock_fetch_single_entitlement_fixture():
-#     """Fixture that returns a single entitlement
-
-#     Returns:
-#         json array: An array consisting of single entitlement information
-#     """
-#     return [
-#         {"id": "Entitlement3", "label": "Label3", "license_number": "License3"},
-#     ]
-
-
-# @pytest.fixture(name="set_licensing_info_mock_fetch_multiple_entitlements")
-# def set_licensing_info_mock_fetch_multiple_entitlements_fixture():
-#     """Fixture that returns multiple entitlements
-
-#     Returns:
-#         json array: An array consisting of multiple entitlements
-#     """
-#     return [
-#         {"id": "Entitlement1", "label": "Label1", "license_number": "License1"},
-#         {"id": "Entitlement2", "label": "Label2", "license_number": "License2"},
-#     ]
-
-
-# @pytest.fixture(name="set_licensing_info_mock_access_token")
-# def set_licensing_info_mock_access_token_fixture():
-#     """Pytest fixture that returns a mock token that mimics mw.fetch_access_token() response"""
-#     access_token_string = int("".join([str(random.randint(0, 10)) for _ in range(272)]))
-#     return {
-#         "token": str(access_token_string),
+# whereas while accessing matlab-proxy with nginx as the reverse proxy, the nginx server
+# modifies the web socket request to
+#     {
+#         "connection": "upgrade",
+#         "upgrade": "websocket",
 #     }
 
 
-# @pytest.fixture(name="set_licensing_info_mock_expand_token")
-# def set_licensing_info_mock_expand_token_fixture():
-#     """Pytest fixture which returns a dict
+async def test_set_licensing_info_put_nlm(test_server):
+    """Test to check endpoint : "/set_licensing_info"
 
-#     The return value represents a valid json response when mw.fetch_expand_token function is called.
+    Test which sends HTTP PUT request with NLM licensing information.
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server to send HTTP GET request.
+    """
 
-#     Returns:
-#         json data with mimics mw.fetch_expand_token() response
-#     """
-#     now = datetime.datetime.now(timezone.utc)
-#     first_name = "abc"
-
-#     json_data = {
-#         "expiry": str((now + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S.%f%z")),
-#         "first_name": first_name,
-#         "last_name": "def",
-#         "display_name": first_name,
-#         "email_addr": "test@test.com",
-#         "user_id": "".join([str(random.randint(0, 10)) for _ in range(13)]),
-#         "profile_id": "".join([str(random.randint(0, 10)) for _ in range(8)]),
-#     }
-
-#     return json_data
+    data = {
+        "type": "nlm",
+        "status": "starting",
+        "version": "R2020b",
+        "connectionString": "123@nlm",
+    }
+    resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
+    assert resp.status == HTTPStatus.OK
 
 
-# @pytest.fixture(name="set_licensing_info")
-# async def set_licensing_info_fixture(
-#     mocker,
-#     test_server,
-#     set_licensing_info_mock_expand_token,
-#     set_licensing_info_mock_access_token,
-#     set_licensing_info_mock_fetch_multiple_entitlements,
-# ):
-#     """Fixture to setup correct licensing state on the server"""
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_expand_token",
-#         return_value=set_licensing_info_mock_expand_token,
-#     )
+async def test_set_licensing_info_put_invalid_license(test_server):
+    """Test to check endpoint : "/set_licensing_info"
 
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_access_token",
-#         return_value=set_licensing_info_mock_access_token,
-#     )
+    Test which sends HTTP PUT request with INVALID licensing information type.
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server to send HTTP GET request.
+    """
 
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_entitlements",
-#         return_value=set_licensing_info_mock_fetch_multiple_entitlements,
-#     )
-
-#     data = {
-#         "type": "mhlm",
-#         "status": "starting",
-#         "version": "R2020b",
-#         "token": "abc@nlm",
-#         "emailAddress": "abc@nlm",
-#         "sourceId": "abc@nlm",
-#         "matlabVersion": "R2023a",
-#     }
-
-#     # Waiting for the matlab process to start up.
-#     sleep_interval = 1
-#     await wait_for_matlab_to_be_up(test_server, sleep_interval)
-
-#     # Set matlab_version to None to check if the version is updated
-#     # after sending a request t o /set_licensing_info endpoint
-#     test_server.server.app["settings"]["matlab_version"] = None
-
-#     # Pre-req: stop the matlab that got started during test server startup
-#     resp = await test_server.delete("/stop_matlab")
-#     assert resp.status == HTTPStatus.OK
-
-#     resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
-#     assert resp.status == HTTPStatus.OK
-
-#     # Assert whether the matlab_version was updated from None when licensing type is mhlm
-#     assert test_server.server.app["settings"]["matlab_version"] == "R2023a"
-
-#     return test_server
+    data = {
+        "type": "INVALID_TYPE",
+        "status": "starting",
+        "version": "R2020b",
+        "connectionString": "123@nlm",
+    }
+    resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
+    assert resp.status == HTTPStatus.BAD_REQUEST
 
 
-# async def test_set_licensing_mhlm_zero_entitlement(
-#     mocker,
-#     set_licensing_info_mock_expand_token,
-#     set_licensing_info_mock_access_token,
-#     test_server,
-# ):
-#     # Patching the functions where it is used (and not where it is defined)
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_expand_token",
-#         return_value=set_licensing_info_mock_expand_token,
-#     )
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {
+            "connection": "Upgrade",
+            "Upgrade": "websocket",
+        },
+        {
+            "connection": "upgrade",
+            "upgrade": "websocket",
+        },
+    ],
+    ids=["Uppercase header", "Lowercase header"],
+)
+async def test_matlab_proxy_web_socket(test_server, headers):
+    """Test to check if test_server proxies web socket request to fake matlab server
 
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_access_token",
-#         return_value=set_licensing_info_mock_access_token,
-#     )
+    Args:
+        test_server (aiohttp_client): Test Server to send HTTP Requests.
+    """
 
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_entitlements",
-#         side_effect=EntitlementError(
-#             "Your MathWorks account is not linked to a valid license for MATLAB"
-#         ),
-#     )
-
-#     data = {
-#         "type": "mhlm",
-#         "status": "starting",
-#         "version": "R2020b",
-#         "token": "abc@nlm",
-#         "emailaddress": "abc@nlm",
-#         "sourceId": "abc@nlm",
-#     }
-#     # Pre-req: stop the matlab that got started as during test server startup
-#     resp = await test_server.delete("/stop_matlab")
-#     assert resp.status == HTTPStatus.OK
-
-#     resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
-#     assert resp.status == HTTPStatus.OK
-#     resp_json = await resp.json()
-#     expectedError = EntitlementError(message="entitlement error")
-#     assert resp_json["error"]["type"] == type(expectedError).__name__
+    sleep_interval = 1
+    await wait_for_matlab_to_be_up(test_server, sleep_interval)
+    resp = await test_server.ws_connect("/http_ws_request.html/", headers=headers)
+    text = await resp.receive()
+    websocket_response_string = (
+        "Hello world"  # This string is set by the web_socket_handler in devel.py
+    )
+    assert text.type == aiohttp.WSMsgType.TEXT
+    assert text.data == websocket_response_string
 
 
-# async def test_set_licensing_mhlm_single_entitlement(
-#     mocker,
-#     test_server,
-#     set_licensing_info_mock_expand_token,
-#     set_licensing_info_mock_access_token,
-#     set_licensing_info_mock_fetch_single_entitlement,
-# ):
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_expand_token",
-#         return_value=set_licensing_info_mock_expand_token,
-#     )
+async def test_set_licensing_info_put_mhlm(test_server):
+    """Test to check endpoint : "/set_licensing_info"
 
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_access_token",
-#         return_value=set_licensing_info_mock_access_token,
-#     )
-
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_entitlements",
-#         return_value=set_licensing_info_mock_fetch_single_entitlement,
-#     )
-
-#     data = {
-#         "type": "mhlm",
-#         "status": "starting",
-#         "version": "R2020b",
-#         "token": "abc@nlm",
-#         "emailAddress": "abc@nlm",
-#         "sourceId": "abc@nlm",
-#     }
-#     # Pre-req: stop the matlab that got started during test server startup
-#     resp = await test_server.delete("/stop_matlab")
-#     assert resp.status == HTTPStatus.OK
-
-#     resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
-#     assert resp.status == HTTPStatus.OK
-#     resp_json = await resp.json()
-#     assert len(resp_json["licensing"]["entitlements"]) == 1
-#     assert resp_json["licensing"]["entitlementId"] == "Entitlement3"
-
-#     # validate that MATLAB has started correctly
-#     await check_for_matlab_startup(test_server)
-
-#     # test-cleanup: unset licensing
-#     # without this, we can leave test drool related to cached license file
-#     # which can impact other non-dev workflows
-#     resp = await test_server.delete("/set_licensing_info")
-#     assert resp.status == HTTPStatus.OK
+    Test which sends HTTP PUT request with MHLM licensing information.
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server to send HTTP GET request.
+    """
+    # FIXME: This test is talking to production loginws endpoint and is resulting in an exception.
+    # TODO: Use mocks to test the mhlm workflows is working as expected
+    data = {
+        "type": "mhlm",
+        "status": "starting",
+        "version": "R2020b",
+        "token": "123@nlm",
+        "emailaddress": "123@nlm",
+        "sourceId": "123@nlm",
+    }
+    resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
+    assert resp.status == HTTPStatus.OK
 
 
-# async def test_set_licensing_mhlm_multi_entitlements(
-#     mocker,
-#     test_server,
-#     set_licensing_info_mock_expand_token,
-#     set_licensing_info_mock_access_token,
-#     set_licensing_info_mock_fetch_multiple_entitlements,
-# ):
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_expand_token",
-#         return_value=set_licensing_info_mock_expand_token,
-#     )
+async def test_set_licensing_info_put_existing_license(test_server):
+    """Test to check endpoint : "/set_licensing_info"
 
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_access_token",
-#         return_value=set_licensing_info_mock_access_token,
-#     )
+    Test which sends HTTP PUT request with local licensing information.
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server to send HTTP GET request.
+    """
 
-#     mocker.patch(
-#         "matlab_proxy.app_state.mw.fetch_entitlements",
-#         return_value=set_licensing_info_mock_fetch_multiple_entitlements,
-#     )
-
-#     data = {
-#         "type": "mhlm",
-#         "status": "starting",
-#         "version": "R2020b",
-#         "token": "abc@nlm",
-#         "emailaddress": "abc@nlm",
-#         "sourceId": "abc@nlm",
-#     }
-#     # Pre-req: stop the matlab that got started as during test server startup
-#     resp = await test_server.delete("/stop_matlab")
-#     assert resp.status == HTTPStatus.OK
-
-#     resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
-#     assert resp.status == HTTPStatus.OK
-#     resp_json = await resp.json()
-#     assert len(resp_json["licensing"]["entitlements"]) == 2
-#     assert resp_json["licensing"]["entitlementId"] == None
-
-#     # MATLAB should not start if there are multiple entitlements and
-#     # user hasn't selected the license yet
-#     resp = await test_server.get("/get_status")
-#     assert resp.status == HTTPStatus.OK
-#     resp_json = json.loads(await resp.text())
-#     assert resp_json["matlab"]["status"] == "down"
-
-#     # test-cleanup: unset licensing
-#     resp = await test_server.delete("/set_licensing_info")
-#     assert resp.status == HTTPStatus.OK
+    data = {"type": "existing_license"}
+    resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
+    assert resp.status == HTTPStatus.OK
 
 
-# async def test_update_entitlement_with_correct_entitlement(set_licensing_info):
-#     data = {
-#         "type": "mhlm",
-#         "entitlement_id": "Entitlement1",
-#     }
-#     # This test_server is pre-configured with multiple entitlements on app state but no entitlmentId
-#     test_server = set_licensing_info
-#     resp = await test_server.put("/update_entitlement", data=json.dumps(data))
-#     assert resp.status == HTTPStatus.OK
-#     resp_json = await resp.json()
-#     assert resp_json["matlab"]["status"] != "down"
+async def test_set_licensing_info_delete(test_server):
+    """Test to check endpoint : "/set_licensing_info"
 
-#     # test-cleanup: unset licensing
-#     resp = await test_server.delete("/set_licensing_info")
-#     assert resp.status == HTTPStatus.OK
+    Test which sends HTTP DELETE request to remove licensing. Checks if licensing is set to None
+    After request is sent.
+    Args:
+        test_server (aiohttp_client):  A aiohttp_client server to send HTTP GET request.
+    """
+
+    resp = await test_server.delete("/set_licensing_info")
+    resp_json = json.loads(await resp.text())
+    assert resp.status == HTTPStatus.OK and resp_json["licensing"] is None
 
 
-# async def test_get_auth_token_route(test_server, monkeypatch):
-#     """Test to check endpoint : "/get_auth_token"
+async def test_set_termination_integration_delete(test_server):
+    """Test to check endpoint : "/terminate_integration"
 
-#     Args:
-#         test_server (aiohttp_client): A aiohttp_client server for sending GET request.
-#     """
-#     resp = await test_server.get("/get_auth_token")
-#     res_json = await resp.json()
-#     # Testing the default dev configuration where the auth is disabled
-#     assert res_json["token"] == None
-#     assert resp.status == HTTPStatus.OK
+    Test which sends HTTP DELETE request to terminate integration. Checks if integration is terminated
+    successfully.
+    Args:
+        test_server (aiohttp_client):  A aiohttp_client server to send HTTP GET request.
+    """
+    try:
+        resp = await test_server.delete("/terminate_integration")
+        resp_json = json.loads(await resp.text())
+        assert resp.status == HTTPStatus.OK and resp_json["loadUrl"] == "../"
+    except ProcessLookupError:
+        pass
 
 
-# async def test_check_for_concurrency(test_server):
-#     """Test to check the response from endpoint : "/get_status" with different query parameters
+def test_get_access_url(test_server):
+    """Should return a url with 127.0.0.1 in test mode
 
-#     Test requests the "/get_status" endpoint with different query parameters to check
-#     how the server responds.
+    Args:
+        test_server (aiohttp.web.Application): Application Server
+    """
+    assert "127.0.0.1" in util.get_access_url(test_server.app)
 
-#     Args:
-#         test_server (aiohttp_client): A aiohttp_client server to send GET request to.
-#     """
-#     # Request server to check if concurrency check is enabled.
 
-#     env_resp = await test_server.get("/get_env_config")
-#     assert env_resp.status == HTTPStatus.OK
-#     env_resp_json = json.loads(await env_resp.text())
-#     if env_resp_json["isConcurrencyEnabled"]:
-#         # A normal request should not repond with client id or active status
-#         status_resp = await test_server.get("/get_status")
-#         assert status_resp.status == HTTPStatus.OK
-#         status_resp_json = json.loads(await status_resp.text())
-#         assert "clientId" not in status_resp_json
-#         assert "isActiveClient" not in status_resp_json
+@pytest.fixture(name="non_test_env")
+def non_test_env_fixture(monkeypatch):
+    """Monkeypatches MWI_TEST env var to false
 
-#         # When the request comes from the desktop app the server should respond with client id and active status
-#         status_resp = await test_server.get('/get_status?IS_DESKTOP="true"')
-#         assert status_resp.status == HTTPStatus.OK
-#         status_resp_json = json.loads(await status_resp.text())
-#         assert "clientId" in status_resp_json
-#         assert "isActiveClient" in status_resp_json
+    Args:
+        monkeypatch (_pytest.monkeypatch.MonkeyPatch): To monkeypatch env vars
+    """
+    monkeypatch.setenv(mwi_env.get_env_name_testing(), "false")
 
-#         # When the desktop client requests for a session transfer without client id respond with cliend id and active status should be true
-#         status_resp = await test_server.get(
-#             '/get_status?IS_DESKTOP="true"&TRANSFER_SESSION="true"'
-#         )
-#         assert status_resp.status == HTTPStatus.OK
-#         status_resp_json = json.loads(await status_resp.text())
-#         assert "clientId" in status_resp_json
-#         assert status_resp_json["isActiveClient"] == True
 
-#         # When transfering the session is requested by a client whihc is not a desktop client it should be ignored
-#         status_resp = await test_server.get('/get_status?TRANSFER_SESSION="true"')
-#         assert status_resp.status == HTTPStatus.OK
-#         status_resp_json = json.loads(await status_resp.text())
-#         assert "clientId" not in status_resp_json
-#         assert "isActiveClient" not in status_resp_json
+@pytest.fixture(name="non_default_host_interface")
+def non_default_host_interface_fixture(monkeypatch):
+    """Monkeypatches MWI_TEST env var to false
 
-#         # When the desktop client requests for a session transfer with a client id then respond only with active status
-#         status_resp = await test_server.get(
-#             '/get_status?IS_DESKTOP="true"&MWI_CLIENT_ID="foobar"&TRANSFER_SESSION="true"'
-#         )
-#         assert status_resp.status == HTTPStatus.OK
-#         status_resp_json = json.loads(await status_resp.text())
-#         assert "clientId" not in status_resp_json
-#         assert status_resp_json["isActiveClient"] == True
-#     else:
-#         # When Concurrency check is disabled the response should not contain client id or active status
-#         status_resp = await test_server.get("/get_status")
-#         assert status_resp.status == HTTPStatus.OK
-#         status_resp_json = json.loads(await status_resp.text())
-#         assert "clientId" not in status_resp_json
-#         assert "isActiveClient" not in status_resp_json
-#         status_resp = await test_server.get(
-#             '/get_status?IS_DESKTOP="true"&MWI_CLIENT_ID="foobar"&TRANSFER_SESSION="true"'
-#         )
-#         assert status_resp.status == HTTPStatus.OK
-#         status_resp_json = json.loads(await status_resp.text())
-#         assert "clientId" not in status_resp_json
-#         assert "isActiveClient" not in status_resp_json
+    Args:
+        monkeypatch (_pytest.monkeypatch.MonkeyPatch): To monkeypatch env vars
+    """
+    monkeypatch.setenv(mwi_env.get_env_name_app_host(), "0.0.0.0")
+
+
+# For pytest fixtures, order of arguments matter.
+# First set the default host interface to a non-default value
+# Then set MWI_TEST to false and then create an instance of the test_server
+# This order will set the test_server with appropriate values.
+
+
+@pytest.mark.skipif(
+    platform.system() == "Linux" or platform.system() == "Darwin",
+    reason="Testing the windows access URL",
+)
+def test_get_access_url_non_dev_windows(
+    non_default_host_interface, non_test_env, test_server
+):
+    """Test to check access url to be 127.0.0.1 in non-dev mode on Windows"""
+    assert "127.0.0.1" in util.get_access_url(test_server.app)
+
+
+@pytest.mark.skipif(
+    platform.system() == "Windows", reason="Testing the non-Windows access URL"
+)
+def test_get_access_url_non_dev_posix(
+    non_default_host_interface, non_test_env, test_server
+):
+    """Test to check access url to be 0.0.0.0 in non-dev mode on Linux/Darwin"""
+    assert "0.0.0.0" in util.get_access_url(test_server.app)
+
+
+@pytest.fixture(name="set_licensing_info_mock_fetch_single_entitlement")
+def set_licensing_info_mock_fetch_single_entitlement_fixture():
+    """Fixture that returns a single entitlement
+
+    Returns:
+        json array: An array consisting of single entitlement information
+    """
+    return [
+        {"id": "Entitlement3", "label": "Label3", "license_number": "License3"},
+    ]
+
+
+@pytest.fixture(name="set_licensing_info_mock_fetch_multiple_entitlements")
+def set_licensing_info_mock_fetch_multiple_entitlements_fixture():
+    """Fixture that returns multiple entitlements
+
+    Returns:
+        json array: An array consisting of multiple entitlements
+    """
+    return [
+        {"id": "Entitlement1", "label": "Label1", "license_number": "License1"},
+        {"id": "Entitlement2", "label": "Label2", "license_number": "License2"},
+    ]
+
+
+@pytest.fixture(name="set_licensing_info_mock_access_token")
+def set_licensing_info_mock_access_token_fixture():
+    """Pytest fixture that returns a mock token that mimics mw.fetch_access_token() response"""
+    access_token_string = int("".join([str(random.randint(0, 10)) for _ in range(272)]))
+    return {
+        "token": str(access_token_string),
+    }
+
+
+@pytest.fixture(name="set_licensing_info_mock_expand_token")
+def set_licensing_info_mock_expand_token_fixture():
+    """Pytest fixture which returns a dict
+
+    The return value represents a valid json response when mw.fetch_expand_token function is called.
+
+    Returns:
+        json data with mimics mw.fetch_expand_token() response
+    """
+    now = datetime.datetime.now(timezone.utc)
+    first_name = "abc"
+
+    json_data = {
+        "expiry": str((now + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S.%f%z")),
+        "first_name": first_name,
+        "last_name": "def",
+        "display_name": first_name,
+        "email_addr": "test@test.com",
+        "user_id": "".join([str(random.randint(0, 10)) for _ in range(13)]),
+        "profile_id": "".join([str(random.randint(0, 10)) for _ in range(8)]),
+    }
+
+    return json_data
+
+
+@pytest.fixture(name="set_licensing_info")
+async def set_licensing_info_fixture(
+    mocker,
+    test_server,
+    set_licensing_info_mock_expand_token,
+    set_licensing_info_mock_access_token,
+    set_licensing_info_mock_fetch_multiple_entitlements,
+):
+    """Fixture to setup correct licensing state on the server"""
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_expand_token",
+        return_value=set_licensing_info_mock_expand_token,
+    )
+
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_access_token",
+        return_value=set_licensing_info_mock_access_token,
+    )
+
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_entitlements",
+        return_value=set_licensing_info_mock_fetch_multiple_entitlements,
+    )
+
+    data = {
+        "type": "mhlm",
+        "status": "starting",
+        "version": "R2020b",
+        "token": "abc@nlm",
+        "emailAddress": "abc@nlm",
+        "sourceId": "abc@nlm",
+        "matlabVersion": "R2023a",
+    }
+
+    # Waiting for the matlab process to start up.
+    sleep_interval = 1
+    await wait_for_matlab_to_be_up(test_server, sleep_interval)
+
+    # Set matlab_version to None to check if the version is updated
+    # after sending a request t o /set_licensing_info endpoint
+    test_server.server.app["settings"]["matlab_version"] = None
+
+    # Pre-req: stop the matlab that got started during test server startup
+    resp = await test_server.delete("/stop_matlab")
+    assert resp.status == HTTPStatus.OK
+
+    resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
+    assert resp.status == HTTPStatus.OK
+
+    # Assert whether the matlab_version was updated from None when licensing type is mhlm
+    assert test_server.server.app["settings"]["matlab_version"] == "R2023a"
+
+    return test_server
+
+
+async def test_set_licensing_mhlm_zero_entitlement(
+    mocker,
+    set_licensing_info_mock_expand_token,
+    set_licensing_info_mock_access_token,
+    test_server,
+):
+    # Patching the functions where it is used (and not where it is defined)
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_expand_token",
+        return_value=set_licensing_info_mock_expand_token,
+    )
+
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_access_token",
+        return_value=set_licensing_info_mock_access_token,
+    )
+
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_entitlements",
+        side_effect=EntitlementError(
+            "Your MathWorks account is not linked to a valid license for MATLAB"
+        ),
+    )
+
+    data = {
+        "type": "mhlm",
+        "status": "starting",
+        "version": "R2020b",
+        "token": "abc@nlm",
+        "emailaddress": "abc@nlm",
+        "sourceId": "abc@nlm",
+    }
+    # Pre-req: stop the matlab that got started as during test server startup
+    resp = await test_server.delete("/stop_matlab")
+    assert resp.status == HTTPStatus.OK
+
+    resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
+    assert resp.status == HTTPStatus.OK
+    resp_json = await resp.json()
+    expectedError = EntitlementError(message="entitlement error")
+    assert resp_json["error"]["type"] == type(expectedError).__name__
+
+
+async def test_set_licensing_mhlm_single_entitlement(
+    mocker,
+    test_server,
+    set_licensing_info_mock_expand_token,
+    set_licensing_info_mock_access_token,
+    set_licensing_info_mock_fetch_single_entitlement,
+):
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_expand_token",
+        return_value=set_licensing_info_mock_expand_token,
+    )
+
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_access_token",
+        return_value=set_licensing_info_mock_access_token,
+    )
+
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_entitlements",
+        return_value=set_licensing_info_mock_fetch_single_entitlement,
+    )
+
+    data = {
+        "type": "mhlm",
+        "status": "starting",
+        "version": "R2020b",
+        "token": "abc@nlm",
+        "emailAddress": "abc@nlm",
+        "sourceId": "abc@nlm",
+    }
+    # Pre-req: stop the matlab that got started during test server startup
+    resp = await test_server.delete("/stop_matlab")
+    assert resp.status == HTTPStatus.OK
+
+    resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
+    assert resp.status == HTTPStatus.OK
+    resp_json = await resp.json()
+    assert len(resp_json["licensing"]["entitlements"]) == 1
+    assert resp_json["licensing"]["entitlementId"] == "Entitlement3"
+
+    # validate that MATLAB has started correctly
+    await __check_for_matlab_status(test_server, ["up"])
+
+    # test-cleanup: unset licensing
+    # without this, we can leave test drool related to cached license file
+    # which can impact other non-dev workflows
+    resp = await test_server.delete("/set_licensing_info")
+    assert resp.status == HTTPStatus.OK
+
+
+async def test_set_licensing_mhlm_multi_entitlements(
+    mocker,
+    test_server,
+    set_licensing_info_mock_expand_token,
+    set_licensing_info_mock_access_token,
+    set_licensing_info_mock_fetch_multiple_entitlements,
+):
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_expand_token",
+        return_value=set_licensing_info_mock_expand_token,
+    )
+
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_access_token",
+        return_value=set_licensing_info_mock_access_token,
+    )
+
+    mocker.patch(
+        "matlab_proxy.app_state.mw.fetch_entitlements",
+        return_value=set_licensing_info_mock_fetch_multiple_entitlements,
+    )
+
+    data = {
+        "type": "mhlm",
+        "status": "starting",
+        "version": "R2020b",
+        "token": "abc@nlm",
+        "emailaddress": "abc@nlm",
+        "sourceId": "abc@nlm",
+    }
+    # Pre-req: stop the matlab that got started as during test server startup
+    resp = await test_server.delete("/stop_matlab")
+    assert resp.status == HTTPStatus.OK
+
+    resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
+    assert resp.status == HTTPStatus.OK
+    resp_json = await resp.json()
+    assert len(resp_json["licensing"]["entitlements"]) == 2
+    assert resp_json["licensing"]["entitlementId"] == None
+
+    # MATLAB should not start if there are multiple entitlements and
+    # user hasn't selected the license yet
+    resp = await test_server.get("/get_status")
+    assert resp.status == HTTPStatus.OK
+
+    __check_for_matlab_status(test_server, ["down"])
+
+    # test-cleanup: unset licensing
+    resp = await test_server.delete("/set_licensing_info")
+    assert resp.status == HTTPStatus.OK
+
+
+async def test_update_entitlement_with_correct_entitlement(set_licensing_info):
+    data = {
+        "type": "mhlm",
+        "entitlement_id": "Entitlement1",
+    }
+    # This test_server is pre-configured with multiple entitlements on app state but no entitlmentId
+    test_server = set_licensing_info
+    resp = await test_server.put("/update_entitlement", data=json.dumps(data))
+    assert resp.status == HTTPStatus.OK
+    resp_json = await resp.json()
+    assert resp_json["matlab"]["status"] != "down"
+
+    # test-cleanup: unset licensing
+    resp = await test_server.delete("/set_licensing_info")
+    assert resp.status == HTTPStatus.OK
+
+
+async def test_get_auth_token_route(test_server, monkeypatch):
+    """Test to check endpoint : "/get_auth_token"
+
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server for sending GET request.
+    """
+    resp = await test_server.get("/get_auth_token")
+    res_json = await resp.json()
+    # Testing the default dev configuration where the auth is disabled
+    assert res_json["token"] == None
+    assert resp.status == HTTPStatus.OK
+
+
+async def test_check_for_concurrency(test_server):
+    """Test to check the response from endpoint : "/get_status" with different query parameters
+
+    Test requests the "/get_status" endpoint with different query parameters to check
+    how the server responds.
+
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server to send GET request to.
+    """
+    # Request server to check if concurrency check is enabled.
+
+    env_resp = await test_server.get("/get_env_config")
+    assert env_resp.status == HTTPStatus.OK
+    env_resp_json = json.loads(await env_resp.text())
+    if env_resp_json["isConcurrencyEnabled"]:
+        # A normal request should not repond with client id or active status
+        status_resp = await test_server.get("/get_status")
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" not in status_resp_json
+        assert "isActiveClient" not in status_resp_json
+
+        # When the request comes from the desktop app the server should respond with client id and active status
+        status_resp = await test_server.get('/get_status?IS_DESKTOP="true"')
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" in status_resp_json
+        assert "isActiveClient" in status_resp_json
+
+        # When the desktop client requests for a session transfer without client id respond with cliend id and active status should be true
+        status_resp = await test_server.get(
+            '/get_status?IS_DESKTOP="true"&TRANSFER_SESSION="true"'
+        )
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" in status_resp_json
+        assert status_resp_json["isActiveClient"] == True
+
+        # When transfering the session is requested by a client whihc is not a desktop client it should be ignored
+        status_resp = await test_server.get('/get_status?TRANSFER_SESSION="true"')
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" not in status_resp_json
+        assert "isActiveClient" not in status_resp_json
+
+        # When the desktop client requests for a session transfer with a client id then respond only with active status
+        status_resp = await test_server.get(
+            '/get_status?IS_DESKTOP="true"&MWI_CLIENT_ID="foobar"&TRANSFER_SESSION="true"'
+        )
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" not in status_resp_json
+        assert status_resp_json["isActiveClient"] == True
+    else:
+        # When Concurrency check is disabled the response should not contain client id or active status
+        status_resp = await test_server.get("/get_status")
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" not in status_resp_json
+        assert "isActiveClient" not in status_resp_json
+        status_resp = await test_server.get(
+            '/get_status?IS_DESKTOP="true"&MWI_CLIENT_ID="foobar"&TRANSFER_SESSION="true"'
+        )
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" not in status_resp_json
+        assert "isActiveClient" not in status_resp_json
