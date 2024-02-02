@@ -1016,7 +1016,6 @@ class AppState:
                 f"MATLAB Ready file successfully read, matlab_port set to: {self.matlab_port}"
             )
 
-    @decorator
     async def start_matlab(self, restart_matlab=False):
         """Start MATLAB.
 
