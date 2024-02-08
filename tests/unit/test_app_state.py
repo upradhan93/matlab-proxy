@@ -135,6 +135,12 @@ class Mock_matlab:
 
     returncode: Optional[int]
     pid: Optional[int]
+    
+    def is_running(self) -> bool: 
+        return self.returncode is None
+
+    def wait(self) -> int:
+        return self.returncode
 
 
 @pytest.mark.parametrize(
