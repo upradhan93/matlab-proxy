@@ -1,5 +1,6 @@
-# Copyright (c) 2020-2023 The MathWorks, Inc.
+# Copyright 2020-2024 The MathWorks, Inc.
 import argparse
+import inspect
 import os
 import socket
 
@@ -250,3 +251,7 @@ def is_valid_path(path: Path):
     """
     path = Path(path)
     return path.is_dir() or path.is_file()
+
+
+def get_caller_name():
+    return inspect.stack()[2][3]

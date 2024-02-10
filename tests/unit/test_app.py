@@ -18,7 +18,7 @@ from matlab_proxy.util.mwi import environment_variables as mwi_env
 from matlab_proxy.util.mwi.exceptions import EntitlementError, MatlabInstallError
 
 
-def test_create_app():
+async def test_create_app():
     """Test if aiohttp server is being created successfully.
 
     Checks if the aiohttp server is created successfully, routes, startup and cleanup
@@ -32,6 +32,7 @@ def test_create_app():
     # Verify app server has a cleanup task
     # By default there is 1 for clean up task
     assert len(test_server.on_cleanup) > 1
+    await test_server["state"].stop_server_tasks()
 
 
 def get_email():
@@ -278,16 +279,25 @@ async def test_start_matlab_route(test_server):
     await test_server.put("/start_matlab")
 
     # Check if Matlab restarted successfully
-    await check_for_matlab_startup(test_server)
+    await __check_for_matlab_status(test_server, ["starting", "up"])
 
 
-async def check_for_matlab_startup(test_server):
+async def __check_for_matlab_status(test_server, statuses):
+    """Helper function to check if the status of MATLAB returned by the server is either of the values mentioned in statuses
+
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server to send HTTP DELETE request.
+        statuses ([str]): Possible MATLAB statuses.
+
+    Raises:
+        ConnectionError: Exception raised if the test_server is not reachable.
+    """
     count = 0
     while True:
         resp = await test_server.get("/get_status")
         assert resp.status == HTTPStatus.OK
         resp_json = json.loads(await resp.text())
-        if resp_json["matlab"]["status"] != "down":
+        if resp_json["matlab"]["status"] in statuses:
             break
         else:
             count += 1
@@ -300,14 +310,20 @@ async def test_stop_matlab_route(test_server):
     """Test to check endpoint : "/stop_matlab"
 
     Sends HTTP DELETE request to stop matlab and checks if matlab status is down.
+
     Args:
         test_server (aiohttp_client): A aiohttp_client server to send HTTP DELETE request.
     """
+    # Arrange
+    # Nothing to arrange
+
+    # Act
     resp = await test_server.delete("/stop_matlab")
     assert resp.status == HTTPStatus.OK
 
-    resp_json = json.loads(await resp.text())
-    assert resp_json["matlab"]["status"] == "down"
+    # Assert
+    # Check if Matlab restarted successfully
+    await __check_for_matlab_status(test_server, ["stopping", "down"])
 
 
 async def test_root_redirect(test_server):
@@ -801,6 +817,11 @@ async def set_licensing_info_fixture(
         "sourceId": "abc@nlm",
         "matlabVersion": "R2023a",
     }
+
+    # Waiting for the matlab process to start up.
+    sleep_interval = 1
+    await wait_for_matlab_to_be_up(test_server, sleep_interval)
+
     # Set matlab_version to None to check if the version is updated
     # after sending a request t o /set_licensing_info endpoint
     test_server.server.app["settings"]["matlab_version"] = None
@@ -902,7 +923,7 @@ async def test_set_licensing_mhlm_single_entitlement(
     assert resp_json["licensing"]["entitlementId"] == "Entitlement3"
 
     # validate that MATLAB has started correctly
-    await check_for_matlab_startup(test_server)
+    await __check_for_matlab_status(test_server, ["up"])
 
     # test-cleanup: unset licensing
     # without this, we can leave test drool related to cached license file
@@ -955,8 +976,7 @@ async def test_set_licensing_mhlm_multi_entitlements(
     # user hasn't selected the license yet
     resp = await test_server.get("/get_status")
     assert resp.status == HTTPStatus.OK
-    resp_json = json.loads(await resp.text())
-    assert resp_json["matlab"]["status"] == "down"
+    __check_for_matlab_status(test_server, ["down"])
 
     # test-cleanup: unset licensing
     resp = await test_server.delete("/set_licensing_info")

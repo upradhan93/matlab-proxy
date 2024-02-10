@@ -113,7 +113,7 @@ async def create_status_response(
     state = app["state"]
     status = {
         "matlab": {
-            "status": await state.get_matlab_state(),
+            "status": state.get_matlab_state(),
             "version": state.settings["matlab_version"],
         },
         "licensing": marshal_licensing_info(state.licensing),
@@ -704,7 +704,7 @@ async def matlab_starter(app):
     state = app["state"]
 
     try:
-        if state.is_licensed() and await state.get_matlab_state() == "down":
+        if state.is_licensed() and state.get_matlab_state() == "down":
             await state.start_matlab()
     except asyncio.CancelledError:
         # Ensure MATLAB is terminated
@@ -737,7 +737,8 @@ async def cleanup_background_tasks(app):
 
     # Stop any running async tasks
     logger = mwi.logger.get()
-    tasks = state.tasks
+    # Cleanup both matlab and server tasks
+    tasks = {**state.matlab_tasks, **state.server_tasks}
     for task_name, task in tasks.items():
         if not task.cancelled():
             logger.debug(f"Cancelling MWI task: {task_name} : {task} ")

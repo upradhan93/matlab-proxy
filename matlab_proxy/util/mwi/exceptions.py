@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2023 The MathWorks, Inc.
+# Copyright 2020-2024 The MathWorks, Inc.
 
 
 class AppError(Exception):
@@ -160,6 +160,16 @@ class InvalidTokenError(AppError):
     Args:
         AppError (Class): Parent Class containing attributes to store
         messages, logs and stacktrace.
+    """
+
+    pass
+
+
+class LockNotAcquiredException(Exception):
+    """Exception raised when accessing a critical section without acquiring a lock.
+
+    Args:
+        Exception : Python's inbuilt Exception Class.
     """
 
     pass
