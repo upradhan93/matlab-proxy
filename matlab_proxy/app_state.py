@@ -316,6 +316,7 @@ class AppState:
                     task.cancel()
                     await task
                     logger.debug(f"{name} task stopped successfully")
+
                 except asyncio.CancelledError:
                     pass
 

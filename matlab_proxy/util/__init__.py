@@ -254,4 +254,9 @@ def is_valid_path(path: Path):
 
 
 def get_caller_name():
+    """Utility function to get the name of the function that called it.
+
+    Returns:
+        str: Name of the parent function.
+    """
     return inspect.stack()[2][3]
