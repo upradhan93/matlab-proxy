@@ -79,7 +79,7 @@ jobs:
           python3 -m pip install .[dev]
 
       - name: Lint with black
-        run: black --check .
+        run: black --check --verbose .
 
       - name: Unit Test with pytest
         run: python3 -m pytest tests/unit
