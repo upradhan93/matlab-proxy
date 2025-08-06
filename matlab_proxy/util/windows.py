@@ -1,9 +1,12 @@
-# Copyright 2022-2023 The MathWorks, Inc.
+# Copyright 2022-2024 The MathWorks, Inc.
 import asyncio
 
 from matlab_proxy import util
 from matlab_proxy.util import mwi
 from matlab_proxy.util.mwi import environment_variables as mwi_env
+from matlab_proxy.util.mwi.exceptions import (
+    UIVisibleFatalError,
+)
 
 
 """ This file contains methods specific to non-posix / windows OS.
@@ -46,10 +49,13 @@ async def start_matlab(matlab_cmd, matlab_env):
     """
     import psutil
 
+    # The stdout is used to suppress the MATLAB outputs from being shown in the terminal.
+    # We set it to DEVNULL instead of PIPE because PIPE has a limited buffer size and can
+    # block the process if the output exceeds the buffer limit.
     intermediate_proc = await asyncio.create_subprocess_exec(
         *matlab_cmd,
         env=matlab_env,
-        stdout=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.STDOUT,
     )
 
@@ -77,8 +83,9 @@ async def start_matlab(matlab_cmd, matlab_env):
             "MATLAB.exe" == matlab.name()
         ), "Expecting the child process name to be MATLAB.exe"
 
-    except AssertionError as err:
+    except (AssertionError, UIVisibleFatalError) as err:
         raise err
+
     except psutil.NoSuchProcess:
         # We reach here when the intermediate process launched by matlab-proxy died
         # before we can query for its child processes. Hence, to find the actual MATLAB

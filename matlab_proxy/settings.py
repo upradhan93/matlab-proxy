@@ -1,6 +1,6 @@
-# Copyright 2020-2023 The MathWorks, Inc.
+# Copyright 2020-2025 The MathWorks, Inc.
 
-from pathlib import Path
+import datetime
 import os
 import shutil
 import socket
@@ -8,9 +8,16 @@ import ssl
 import tempfile
 import uuid
 import xml.etree.ElementTree as ET
+from pathlib import Path
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 
 import matlab_proxy
 from matlab_proxy import constants
+from matlab_proxy.constants import MWI_AUTH_TOKEN_NAME_FOR_HTTP
 from matlab_proxy.util import mwi, system
 from matlab_proxy.util.mwi import environment_variables as mwi_env
 from matlab_proxy.util.mwi import token_auth
@@ -40,7 +47,7 @@ def get_process_startup_timeout():
             return int(custom_startup_timeout)
 
         else:
-            logger.warn(
+            logger.warning(
                 f"The value set for {mwi_env.get_env_name_process_startup_timeout()}:{custom_startup_timeout} is not a number. Using {constants.DEFAULT_PROCESS_START_TIMEOUT} as the default value"
             )
             return constants.DEFAULT_PROCESS_START_TIMEOUT
@@ -67,7 +74,7 @@ def get_matlab_executable_and_root_path():
         matlab_root_path = Path(custom_matlab_root_path)
 
         # Terminate process if invalid Custom Path was provided!
-        mwi.validators.validate_matlab_root_path(
+        matlab_root_path = mwi.validators.validate_matlab_root_path(
             matlab_root_path, is_custom_matlab_root=True
         )
 
@@ -94,10 +101,9 @@ def get_matlab_executable_and_root_path():
 
     # Control only gets here if custom matlab root was not set AND which matlab returned no results.
     # Note, error messages are formatted as multi-line strings and the front end displays them as is.
-    error_message = "Unable to find MATLAB on the system PATH. Add MATLAB to the system PATH, and restart matlab-proxy."
-
-    logger.info(error_message)
-    raise MatlabInstallError(error_message)
+    raise MatlabInstallError(
+        "Unable to find MATLAB on the system PATH. Add MATLAB to the system PATH, and restart matlab-proxy."
+    )
 
 
 def get_matlab_version(matlab_root_path):
@@ -119,7 +125,16 @@ def get_matlab_version(matlab_root_path):
     tree = ET.parse(version_info_file_path)
     root = tree.getroot()
 
-    return root.find("release").text
+    matlab_version = root.find("release").text
+
+    # If the matlab on system PATH is a wrapper script, then it would not be possible to determine MATLAB root (inturn not being able to determine MATLAB version)
+    # unless MWI_CUSTOM_MATLAB_ROOT is set. Raising only a warning as the matlab version is only required for communicating with MHLM.
+    if not matlab_version:
+        logger.warning(
+            f"Could not determine MATLAB version from MATLAB root path: {matlab_root_path}. Set {mwi_env.get_env_name_custom_matlab_root()} to a valid MATLAB root path"
+        )
+
+    return matlab_version
 
 
 def get_ws_env_settings():
@@ -187,18 +202,24 @@ def get_dev_settings(config):
         "mwa_login": f"https://login{ws_env_suffix}.mathworks.com",
         "mwi_custom_http_headers": mwi.custom_http_headers.get(),
         "env_config": mwi.validators.validate_env_config(config),
+        "integration_name": "MATLAB Desktop",
         "ssl_context": None,
         "mwi_logs_root_dir": get_mwi_logs_root_dir(dev=True),
         "mw_context_tags": get_mw_context_tags(matlab_proxy.get_default_config_name()),
         "mwi_server_url": None,
-        "mwi_is_token_auth_enabled": mwi_auth_token != None,
+        "mwi_is_token_auth_enabled": mwi_auth_token is not None,
         "mwi_auth_status": False,
         "mwi_auth_token": mwi_auth_token,
         "mwi_auth_token_hash": mwi_auth_token_hash,
-        "mwi_auth_token_name": mwi_env.get_env_name_mwi_auth_token().lower(),
+        "mwi_auth_token_name_for_http": MWI_AUTH_TOKEN_NAME_FOR_HTTP,
+        "mwi_auth_token_name_for_env": mwi_env.get_env_name_mwi_auth_token().lower(),
         "mwi_use_existing_license": mwi.validators.validate_use_existing_licensing(
             os.getenv(mwi_env.get_env_name_mwi_use_existing_license(), "")
         ),
+        "warnings": [],
+        "is_xvfb_available": False,
+        "is_windowmanager_available": False,
+        "mwi_idle_timeout": None,
     }
 
 
@@ -243,22 +264,31 @@ def get(config_name=matlab_proxy.get_default_config_name(), dev=False):
             settings["nlm_conn_str"] = "123@nlm"
 
     else:
-        settings = {"error": None}
+        settings = {"error": None, "warnings": []}
 
         # Initializing server settings separately allows us to return
         # a minimal set of settings required to launch the server even if
         # there is an exception thrown when creating the matlab specific settings.
         settings.update(get_server_settings(config_name))
 
-        try:
-            # Update settings with matlab specific values.
-            settings.update(get_matlab_settings())
-        except UIVisibleFatalError as error:
-            logger.error(f"Exception raised during initialization: {error}")
-            settings["error"] = error
-            # Exceptions of this kind must propagate to the UI.
-            # Returning settings that have been created without exceptions
-            pass
+        settings["is_xvfb_available"] = True if shutil.which("Xvfb") else False
+        settings["is_windowmanager_available"] = (
+            True if shutil.which("fluxbox") else False
+        )
+
+        # Warn user if xvfb is not available on system path.
+        if system.is_linux():
+            if not settings["is_xvfb_available"]:
+                warning = "  Unable to find Xvfb on the system PATH. Xvfb enables graphical abilities like plots and figures in the MATLAB desktop.\nConsider adding Xvfb to the system PATH and restart matlab-proxy.\nFor details, see https://github.com/mathworks/matlab-proxy#requirements."
+                logger.warning(warning)
+                settings["warnings"].append(warning)
+
+            if not settings["is_windowmanager_available"]:
+                warning = " Unable to find fluxbox on the system PATH. To use Simulink Online, add Fluxbox to the system PATH and restart matlab-proxy. For details, see https://github.com/mathworks/matlab-proxy#requirements."
+                logger.warning(warning)
+                settings["warnings"].append(warning)
+
+        settings.update(get_matlab_settings())
 
     return settings
 
@@ -279,13 +309,17 @@ def get_server_settings(config_name):
         mwi_auth_token_hash,
     ) = token_auth.generate_mwi_auth_token_and_hash().values()
     mwi_config_folder = get_mwi_config_folder()
-    ssl_key_file, ssl_cert_file = mwi.validators.validate_ssl_key_and_cert_file(
-        os.getenv(mwi_env.get_env_name_ssl_key_file(), None),
-        os.getenv(mwi_env.get_env_name_ssl_cert_file(), None),
-    )
 
     # log file validation check is already done in logger.py
     mwi_log_file = os.getenv(mwi_env.get_env_name_log_file(), None)
+
+    env_config = mwi.validators.validate_env_config(config_name)
+    short_desc = env_config["extension_name_short_description"]
+    integration_name = (
+        short_desc
+        if env_config["extension_name"] == matlab_proxy.get_default_config_name()
+        else f"{short_desc} - MATLAB Integration"
+    )
 
     return {
         "create_xvfb_cmd": create_xvfb_cmd,
@@ -298,7 +332,8 @@ def get_server_settings(config_name):
         "app_port": mwi.validators.validate_app_port_is_free(
             os.getenv(mwi_env.get_env_name_app_port())
         ),
-        "env_config": mwi.validators.validate_env_config(config_name),
+        "env_config": env_config,
+        "integration_name": integration_name,
         "mwapikey": str(uuid.uuid4()),
         "matlab_protocol": "https",
         "matlab_config_file": mwi_config_folder / "proxy_app_config.json",
@@ -310,16 +345,19 @@ def get_server_settings(config_name):
         "mw_context_tags": get_mw_context_tags(config_name),
         # The url where the matlab-proxy server is accessible at
         "mwi_server_url": None,
-        "mwi_is_token_auth_enabled": mwi_auth_token != None,
+        "mwi_is_token_auth_enabled": mwi_auth_token is not None,
         "mwi_auth_status": False,
         "mwi_auth_token": mwi_auth_token,
         "mwi_auth_token_hash": mwi_auth_token_hash,
-        "mwi_auth_token_name": mwi_env.get_env_name_mwi_auth_token().lower(),
+        "mwi_auth_token_name_for_http": MWI_AUTH_TOKEN_NAME_FOR_HTTP,
+        "mwi_auth_token_name_for_env": mwi_env.get_env_name_mwi_auth_token().lower(),
         "mwi_use_existing_license": mwi.validators.validate_use_existing_licensing(
             os.getenv(mwi_env.get_env_name_mwi_use_existing_license(), "")
         ),
-        "ssl_context": get_ssl_context(
-            ssl_cert_file=ssl_cert_file, ssl_key_file=ssl_key_file
+        "ssl_context": _validate_ssl_files_and_get_ssl_context(mwi_config_folder),
+        # validate_idle_timeout converts the timeout from minutes to seconds
+        "mwi_idle_timeout": mwi.validators.validate_idle_timeout(
+            os.getenv(mwi_env.get_env_name_shutdown_on_idle_timeout())
         ),
     }
 
@@ -334,58 +372,35 @@ def get_matlab_settings():
     Unless they are of type UIVisibleFatalError
     """
 
-    matlab_executable_path, matlab_root_path = get_matlab_executable_and_root_path()
-
     ws_env, ws_env_suffix = get_ws_env_settings()
+    mw_licensing_urls = _get_mw_licensing_urls(ws_env_suffix)
+    nlm_conn_str = _get_nlm_conn_str()
+    has_custom_code_to_execute, code_to_execute = _get_matlab_code_to_execute()
+    err = None
 
-    # MATLAB Proxy gives precedence to the licensing information conveyed
-    # by the user. If MLM_LICENSE_FILE is set, it should be prioritised over
-    # other ways of licensing. But existence of license_info.xml in matlab/licenses
-    # folder may cause hinderance in this workflow. So specifying -licmode as 'file'
-    # overrides license_info.xml and enforces MLM_LICENSE_FILE to be the topmost priority
+    try:
+        matlab_executable_path, matlab_root_path = get_matlab_executable_and_root_path()
 
-    # NLM Connection String provided by MLM_LICENSE_FILE environment variable
-    nlm_conn_str = mwi.validators.validate_mlm_license_file(
-        os.environ.get(mwi_env.get_env_name_network_license_manager())
-    )
-    matlab_lic_mode = ["-licmode", "file"] if nlm_conn_str else ""
-    # flag to hide MATLAB Window
-    flag_to_hide_desktop = (
-        ["-noDisplayDesktop", "-wait", "-log"]
-        if system.is_windows()
-        else ["-nodesktop"]
-    )
-    matlab_startup_file = str(Path(__file__).resolve().parent / "matlab" / "startup.m")
+    except UIVisibleFatalError as error:
+        logger.error(f"Exception raised during initialization: {error}")
+        # Set matlab root and executable path to None as MATLAB root could not be determined
+        matlab_executable_path = matlab_root_path = None
+        err = error
 
     matlab_version = get_matlab_version(matlab_root_path)
-
-    # If the matlab on system PATH is a wrapper script, then it would not be possible to determine MATLAB root (inturn not being able to determine MATLAB version)
-    # unless MWI_CUSTOM_MATLAB_ROOT is set. Raising only a warning as the matlab version is only required for communicating with MHLM.
-    if not matlab_version:
-        logger.warn(
-            f"Could not determine MATLAB version from MATLAB root path: {matlab_root_path}"
-        )
-        logger.warn(
-            f"Set {mwi_env.get_env_name_custom_matlab_root()} to a valid MATLAB root path"
-        )
+    matlab_version_determined_on_startup = bool(matlab_version)
+    matlab_cmd = _get_matlab_cmd(matlab_executable_path, code_to_execute, nlm_conn_str)
 
     return {
-        "matlab_path": matlab_root_path,
+        "error": err,
         "matlab_version": matlab_version,
-        "matlab_cmd": [
-            matlab_executable_path,
-            "-nosplash",
-            *flag_to_hide_desktop,
-            "-softwareopengl",
-            *matlab_lic_mode,
-            "-r",
-            f"try; run('{matlab_startup_file}'); catch ME; disp(ME.message); end;",
-        ],
+        "matlab_path": matlab_root_path,
+        "matlab_version_determined_on_startup": matlab_version_determined_on_startup,
+        "matlab_cmd": matlab_cmd,
         "ws_env": ws_env,
-        "mwa_api_endpoint": f"https://login{ws_env_suffix}.mathworks.com/authenticationws/service/v4",
-        "mhlm_api_endpoint": f"https://licensing{ws_env_suffix}.mathworks.com/mls/service/v1/entitlement/list",
-        "mwa_login": f"https://login{ws_env_suffix}.mathworks.com",
+        **mw_licensing_urls,
         "nlm_conn_str": nlm_conn_str,
+        "has_custom_code_to_execute": has_custom_code_to_execute,
     }
 
 
@@ -437,7 +452,7 @@ def create_xvfb_cmd():
         str(dpipe[1]),
         "-screen",
         "0",
-        "1600x1200x24",
+        "3840x2160x24",
         "-dpi",
         "100",
         # "-ac",
@@ -458,31 +473,230 @@ def get_test_temp_dir():
     return test_temp_dir
 
 
-def get_ssl_context(ssl_cert_file, ssl_key_file):
-    """Creates an SSL CONTEXT for use with the TCP Site"""
+def _validate_ssl_files_and_get_ssl_context(mwi_config_folder):
+    """Creates an SSL CONTEXT for use with the TCP Site.
+    The certfile string must be the path to a single file in PEM format containing the
+    certificate as well as any number of CA certificates needed to establish the certificate’s authenticity.
+    The keyfile string, if present, must point to a file containing the private key in.
+    Otherwise the private key will be taken from certfile as well.
+    """
+    is_self_signed_certificates = False
+    env_name_enable_ssl = mwi_env.get_env_name_enable_ssl()
+    is_ssl_enabled = mwi_env._is_env_set_to_true(env_name_enable_ssl)
+    env_name_ssl_key_file = mwi_env.get_env_name_ssl_key_file()
+    env_name_ssl_cert_file = mwi_env.get_env_name_ssl_cert_file()
 
-    # The certfile string must be the path to a single file in PEM format containing the
-    # certificate as well as any number of CA certificates needed to establish the certificate’s authenticity.
-    # The keyfile string, if present, must point to a file containing the private key in.
-    # Otherwise the private key will be taken from certfile as well.
-    import traceback
+    ssl_key_file, ssl_cert_file = (
+        os.getenv(env_name_ssl_key_file, None),
+        os.getenv(env_name_ssl_cert_file, None),
+    )
 
-    if ssl_cert_file != None:
-        try:
-            ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-            ssl_context.load_cert_chain(ssl_cert_file, ssl_key_file)
-            logger.debug(f"Using SSL certification!")
-        except Exception as e:
-            # Something was wrong with the certificates provided
-            error_message = "SSL certificates provided are invalid. Aborting..."
-            logger.error(error_message)
-            traceback.print_exc()
-            logger.info("==== Fatal error : ===")
-            print(e)
-            # printing stack trace
-            logger.info("======================")
-            raise FatalError(error_message)
-    else:
+    # Don't use SSL if the user has explicitly disabled SSL communication or not set the respective env var
+    if not is_ssl_enabled:
+        if ssl_cert_file:
+            logger.warn(
+                f"Ignoring provided SSL files, as {env_name_enable_ssl} is either unset or set to false"
+            )
+        return None
+
+    # Validate that provided SSL files are valid files
+    ssl_key_file, ssl_cert_file = mwi.validators.validate_ssl_key_and_cert_file(
+        ssl_key_file, ssl_cert_file
+    )
+
+    if not ssl_cert_file and not ssl_key_file:
+        logger.debug("Using auto-generated self-signed certificates")
+
+        # certs dir under the MWI_CONFIG_FOLDER will hold the self-signed certificates
+        mwi_certs_dir = mwi_config_folder / "certs"
+        mwi_certs_dir.mkdir(parents=True, exist_ok=True)
+
+        # New certs are generated for every run leading to functionally reliable system, alternative is
+        # to check for existing certs and have error handling around expired/bad certs.
+        ssl_cert_file, ssl_key_file = generate_new_self_signed_certs(mwi_certs_dir)
+        is_self_signed_certificates = True
+    try:
+        ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ssl_context.load_cert_chain(ssl_cert_file, ssl_key_file)
+        logger.debug("Certificate chain was correctly loaded")
+    except Exception as e:
+        logger.error(f"Unable to load certificates. Error: {e}")
+
+        # Setting to None to use http mode in the event of failing to setup self-signed certificates
         ssl_context = None
 
+        # Raise a fatal error only in the event of an exception while loading customer-supplied ssl files
+        if not is_self_signed_certificates:
+            raise FatalError(e)
+
     return ssl_context
+
+
+def generate_new_self_signed_certs(mwi_certs_dir):
+    """
+    Generates a new self-signed certificate and corresponding private key, saves them as PEM files in the specified directory.
+    The certificate is valid for 365 days from the time of creation.
+
+    Parameters:
+    - mwi_certs_dir (Path): A pathlib.Path object representing the directory where the certificate and key files will be saved.
+
+    Returns:
+    - tuple: A tuple containing the file paths (as strings) to the newly created certificate and private key PEM files.
+             The first element is the path to the certificate file (cert.pem), and the second is the path to the key file (key.pem).
+
+    Raises:
+    - FileNotFoundError: If the mwi_certs_dir does not exist.
+    - Any other exception that may occur during file writing or certificate generation.
+    """
+    cert_file = priv_key_file = None
+    try:
+        # Generate private key
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+        # Self-signed certificate
+        subject = issuer = x509.Name(
+            [
+                x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+                x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Massachusetts"),
+                x509.NameAttribute(NameOID.LOCALITY_NAME, "Natick"),
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, "MathWorks Inc."),
+                x509.NameAttribute(NameOID.COMMON_NAME, "mathworks.com"),
+            ]
+        )
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(private_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.datetime.utcnow())
+            .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=365))
+            .sign(private_key, hashes.SHA256())
+        )
+
+        # Write private key to file
+        priv_key_file = mwi_certs_dir / "key.pem"
+        with open(priv_key_file, "wb") as f:
+            f.write(
+                private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption(),
+                )
+            )
+
+        # Write certificate to file
+        cert_file = mwi_certs_dir / "cert.pem"
+        with open(cert_file, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+
+    except Exception as ex:
+        logger.warn(
+            f"Failed to generate self-signed certificates, proceeding with non-secure mode! Error: {ex}"
+        )
+        cert_file = priv_key_file = None
+
+    return cert_file, priv_key_file
+
+
+def _sanitize_file_path_for_matlab(filepath: str) -> str:
+    """
+    Replace single quotes in the filepath with double single quotes to preserve the quote when used in MATLAB code.
+    """
+    filepath_with_single_quotes_escaped = filepath.replace("'", "''")
+    return filepath_with_single_quotes_escaped
+
+
+def _get_matlab_code_to_execute():
+    """Returns the code that needs to run on MATLAB startup.
+    Will check for user provided custom MATLAB code and execute it along with the default startup script.
+
+    Returns:
+        tuple: With the first value representing whether there is custom MATLAB code to execute, and the second value representing the MATLAB code to execute.
+    """
+    matlab_code_dir = Path(__file__).resolve().parent / "matlab"
+    matlab_startup_file = str(matlab_code_dir / "startup.m")
+    matlab_code_file = str(matlab_code_dir / "evaluateUserMatlabCode.m")
+
+    has_custom_code_to_execute = (
+        len(os.getenv(mwi_env.get_env_name_custom_matlab_code(), "").strip()) > 0
+    )
+
+    # Sanitize file paths to avoid MATLAB not running the script due to early breakup of character array.
+    mp_code_to_execute = f"try; run('{_sanitize_file_path_for_matlab(matlab_startup_file)}'); catch MATLABProxyInitializationError; disp(MATLABProxyInitializationError.message); end;"
+    custom_code_to_execute = f"try; run('{_sanitize_file_path_for_matlab(matlab_code_file)}'); catch MATLABCustomStartupCodeError; disp(MATLABCustomStartupCodeError.message); end;"
+    code_to_execute = (
+        mp_code_to_execute + custom_code_to_execute
+        if has_custom_code_to_execute
+        else mp_code_to_execute
+    )
+
+    return has_custom_code_to_execute, code_to_execute
+
+
+def _get_nlm_conn_str():
+    """Get the Network License Manager (NLM) connection string.
+
+    Returns:
+        str: The NLM connection string provided by the MLM_LICENSE_FILE environment variable.
+    """
+    # NLM Connection String provided by MLM_LICENSE_FILE environment variable
+    nlm_conn_str = mwi.validators.validate_mlm_license_file(
+        os.environ.get(mwi_env.get_env_name_network_license_manager())
+    )
+
+    return nlm_conn_str
+
+
+def _get_mw_licensing_urls(ws_env_suffix):
+    """Get the MathWorks licensing URLs.
+
+    Args:
+        ws_env_suffix (str): The environment suffix for the licensing URLs.
+
+    Returns:
+        dict: A dictionary containing the MathWorks licensing URLs for authentication and entitlement.
+    """
+    return {
+        "mwa_api_endpoint": f"https://login{ws_env_suffix}.mathworks.com/authenticationws/service/v4",
+        "mhlm_api_endpoint": f"https://licensing{ws_env_suffix}.mathworks.com/mls/service/v1/entitlement/list",
+        "mwa_login": f"https://login{ws_env_suffix}.mathworks.com",
+    }
+
+
+def _get_matlab_cmd(matlab_executable_path, code_to_execute, nlm_conn_str):
+    """Construct the MATLAB command with appropriate flags and arguments.
+
+    Args:
+        matlab_executable_path (str): The path to the MATLAB executable.
+        code_to_execute (str): The MATLAB code to execute on startup.
+        nlm_conn_str (str): The Network License Manager connection string.
+
+    Returns:
+        list: A list of command-line arguments to launch MATLAB with the specified configuration.
+    """
+    if not matlab_executable_path:
+        return None
+
+    matlab_lic_mode = ["-licmode", "file"] if nlm_conn_str else ""
+    # flag to hide MATLAB Window
+    flag_to_hide_desktop = ["-nodesktop"]
+    if system.is_windows():
+        flag_to_hide_desktop.extend(["-noDisplayDesktop", "-wait", "-log"])
+
+    profile_matlab_startup = (
+        "-timing" if mwi_env.Experimental.is_matlab_startup_profiling_enabled() else ""
+    )
+
+    return [
+        matlab_executable_path,
+        "-nosplash",
+        *flag_to_hide_desktop,
+        "-softwareopengl",
+        # " v=mvm ",
+        *matlab_lic_mode,
+        "-externalUI",
+        profile_matlab_startup,
+        "-r",
+        code_to_execute,
+    ]

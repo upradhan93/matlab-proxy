@@ -1,7 +1,7 @@
-# Copyright (c) 2020-2022 The MathWorks, Inc.
+# Copyright 2020-2024 The MathWorks, Inc.
 
-""" This file contains helper methods which return the details required for sending
-a HTTP request to the Embedded Connector. """
+"""This file contains helper methods which return the details required for sending
+a HTTP request to the Embedded Connector."""
 
 
 from matlab_proxy.util import mwi
@@ -44,6 +44,15 @@ def get_data_for_ping_request():
         dict: Payload data
     """
     return {"messages": {"Ping": [{}]}}
+
+
+def get_data_for_matlab_busy_status_request():
+    """Returns data required to send in the payload for a MATLAB busy/idle status request to the embedded connector
+
+    Returns:
+        dict: Payload data
+    """
+    return {"messages": {"GetMatlabStatus": [{}]}}
 
 
 def get_data_to_eval_mcode(m_code):

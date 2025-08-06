@@ -1,13 +1,15 @@
-# Copyright 2020-2023 The MathWorks, Inc.
+# Copyright 2020-2025 The MathWorks, Inc.
 
-"""Tests for functions in matlab_proxy/util/mwi_validators.py
-"""
+"""Tests for functions in matlab_proxy/util/mwi_validators.py"""
 
 import os
 import random
 import socket
 import tempfile
-from matlab_proxy.util.mwi.validators import validate_matlab_root_path
+from matlab_proxy.util.mwi.validators import (
+    validate_idle_timeout,
+    validate_matlab_root_path,
+)
 from matlab_proxy import constants
 from pathlib import Path
 
@@ -182,8 +184,8 @@ def test_validate_env_config_true():
 def test_validate_env_config_false():
     """Passing a non existent config should raise FatalError exception"""
 
-    with pytest.raises(FatalError) as e:
-        config = validators.validate_env_config(str(random.randint(10, 100)))
+    with pytest.raises(FatalError):
+        validators.validate_env_config(str(random.randint(10, 100)))
 
 
 def test_get_configs():
@@ -293,7 +295,7 @@ def test_validate_matlab_root_path(tmp_path):
     assert actual_matlab_root_custom == matlab_root
 
 
-def test_validate_matlab_root_path_invalid_root_path(tmp_path):
+def test_validate_matlab_root_path_non_existent_root_path(tmp_path):
     """Checks if validate_matlab_root_path raises MatlabInstallError when non-existent path is supplied"""
     # Arrange
     matlab_root = Path(tmp_path) / "MATLAB"
@@ -313,19 +315,50 @@ def test_validate_matlab_root_path_invalid_root_path(tmp_path):
 
 
 def test_validate_matlab_root_path_non_existent_versioninfo_file(tmp_path):
-    """Checks if validate_matlab_root_path does not raise any exceptions even if VersionInfo.xml file does not exist"""
+    """Checks if validate_matlab_root_path does not raise any exceptions even if VersionInfo.xml file does not exist
+    when matlab wrapper is used and raises an exception when custom matlab root is used.
+    """
     # Arrange
     matlab_root = Path(tmp_path) / "MATLAB"
     os.mkdir(matlab_root)
 
     # Act
+    # Location of VersionInfo.xml can't be determined with matlab wrapper script
+    # and error should not be raised
     actual_matlab_root = validate_matlab_root_path(
         matlab_root, is_custom_matlab_root=False
     )
-    actual_matlab_root_custom = validate_matlab_root_path(
-        matlab_root, is_custom_matlab_root=True
-    )
+
+    # Location of VersionInfo.xml must be determinable when custom MATLAB root is supplied.
+    # If not, an exception must be raised
+    with pytest.raises(MatlabInstallError):
+        validate_matlab_root_path(matlab_root, is_custom_matlab_root=True)
 
     # Assert
     assert actual_matlab_root is None
-    assert actual_matlab_root_custom is None
+
+
+@pytest.mark.parametrize(
+    "timeout, validated_timeout",
+    [
+        (None, None),
+        ("abc", None),
+        (-10, None),
+        (123, 60 * 123),
+    ],
+    ids=[
+        "No IDLE timeout specified",
+        "Invalid IDLE timeout specified",
+        "Negative number supplied as IDLE timeout",
+        "Valid IDLE timeout specified",
+    ],
+)
+def test_validate_idle_timeout(timeout, validated_timeout):
+    # Arrange
+    # Nothing to arrange
+
+    # Act
+    actual_timeout = validate_idle_timeout(timeout)
+
+    # Assert
+    assert actual_timeout == validated_timeout

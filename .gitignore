@@ -4,8 +4,12 @@ __pycache__/
 build/
 dist/
 .venv*/
-.vscode/
 htmlcov/
 .coverage
 *.key
 *.pem
+.python-version
+coverage.xml
+.ipynb_checkpoints/
+*.ipynb
+.env

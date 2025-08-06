@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2023 The MathWorks, Inc.
+# Copyright 2020-2025 The MathWorks, Inc.
 
 
 class AppError(Exception):
@@ -139,6 +139,19 @@ class XvfbError(AppError):
     pass
 
 
+class WindowManagerError(AppError):
+    """A Class which inherits the AppError class.
+
+    This class represents any errors raised when instantiating a Window Manager within the Xvfb DISPLAY.
+
+    Args:
+        AppError (Class): Parent Class containing attributes to store
+        messages, logs and stacktrace.
+    """
+
+    pass
+
+
 class EmbeddedConnectorError(MatlabError):
     """A Class which inherits the MatlabError class.
 
@@ -160,6 +173,21 @@ class InvalidTokenError(AppError):
     Args:
         AppError (Class): Parent Class containing attributes to store
         messages, logs and stacktrace.
+    """
+
+    pass
+
+
+class LockAcquisitionError(Exception):
+    """Exception raised when a lock is not properly acquired before modifying a variable.
+
+    This error is thrown in scenarios where:
+    1) A lock must be acquired before modifying a shared resource, but it wasn't.
+    2) The lock for a shared resource was acquired by one function, but another function attempts to modify the resource without holding the lock.
+
+
+    Args:
+        Exception : Python's inbuilt Exception Class.
     """
 
     pass

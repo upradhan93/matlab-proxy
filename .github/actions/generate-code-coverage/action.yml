@@ -1,51 +1,61 @@
-# Copyright (c) 2020-2022 The MathWorks, Inc
+# Copyright 2020-2025 The MathWorks, Inc.
 
-# Composite Action to generate Code Coverage XML and Upload it
 name: Generate Code Coverage XML
+description: |
+  Generates Code Coverage for the Python and Javascript code and uploads it to codecov.io
+
+inputs:
+  codecov-token:
+    description: 'codecov.io token'
+    required: true
+
 runs:
   using: "composite"
   steps:
     - name: Set up Python 3.8
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.8'
 
     - name: Use Node.js 18.x
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
         node-version: 18
 
     - name: Install Python build dependencies
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install wheel
-        pip install .[dev]
+        python3 -m pip install --upgrade pip
+        python3 -m pip install wheel
+        python3 -m pip install .[dev]
       shell: bash
 
     - name: Generate Code Coverage report for Python code
-      run: pytest --cov=./ --cov-report=xml
+      run: |
+        python3 -m pytest --cov=matlab_proxy --cov-report=xml tests/unit
       shell: bash
 
     - name: Upload python coverage report to Codecov
-      uses: codecov/codecov-action@v2
+      uses: codecov/codecov-action@v4
       with:
         directory: ./
         name: Python-codecov
         files: ./coverage.xml
         fail_ci_if_error: true
         verbose: true
+        token: ${{ inputs.codecov-token }}
 
     - name: Install Node Dependencies
       run: npm --prefix gui install gui
       shell: bash
 
     - name: Generate code coverage for Javascript code
-      run: npm --prefix gui test -- --coverage --watchAll=false
+      run: npm --prefix gui test -- --coverage
       shell: bash
 
     - name: Upload Javscript coverage report to Codecov
-      uses: codecov/codecov-action@v2
+      uses: codecov/codecov-action@v4
       with:
         directory: ./gui/coverage/
         fail_ci_if_error: true
         verbose: true
+        token: ${{ inputs.codecov-token }}

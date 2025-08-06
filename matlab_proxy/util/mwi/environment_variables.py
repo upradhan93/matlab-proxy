@@ -1,7 +1,31 @@
-# Copyright (c) 2020-2023 The MathWorks, Inc.
+# Copyright 2020-2025 The MathWorks, Inc.
 """This file lists and exposes the environment variables which are used by the integration."""
 
 import os
+
+
+def _is_env_set_to_true(env_name: str) -> bool:
+    """Helper function that returns True if the environment variable specified is set to True.
+
+    Args:
+        env_name (str): Name of the environment variable to check the state for.
+
+    Returns:
+        bool: True if the value of the environment variable is a case insensitive match to the string "True"
+    """
+    return os.environ.get(env_name, "false").lower() == "true"
+
+
+def _is_env_set_to_false(env_name: str) -> bool:
+    """Helper function that returns True if the environment variable specified is set to False.
+
+    Args:
+        env_name (str): Name of the environment variable to check the state for.
+
+    Returns:
+        bool: True if the value of the environment variable is a case insensitive match to the string "False"
+    """
+    return os.environ.get(env_name, "").lower() == "false"
 
 
 def get_env_name_network_license_manager():
@@ -20,17 +44,8 @@ def get_env_name_logging_level():
 
 
 def get_env_name_enable_web_logging():
-    """wef > v0.2.10 Enable the logging of asyncio web traffic by setting to true"""
+    """Enable the logging of asyncio web traffic by setting to true"""
     return "MWI_ENABLE_WEB_LOGGING"
-
-
-def get_old_env_name_enable_web_logging():
-    """
-    Enable the logging of asyncio web traffic by setting to true
-    This name is deprecated and was last published in version v0.2.10 of matlab-proxy.
-    """
-
-    return "MWI_WEB_LOGGING_ENABLED"
 
 
 def get_env_name_log_file():
@@ -89,32 +104,22 @@ def get_env_name_matlab_tempdir():
 
 def is_development_mode_enabled():
     """Returns true if the app is in development mode."""
-    return os.environ.get(get_env_name_development(), "false").lower() == "true"
+    return _is_env_set_to_true(get_env_name_development())
 
 
 def is_testing_mode_enabled():
     """Returns true if the app is in testing mode."""
-    return (
-        is_development_mode_enabled()
-        and os.environ.get(get_env_name_testing(), "false").lower() == "true"
-    )
+    return is_development_mode_enabled() and _is_env_set_to_true(get_env_name_testing())
 
 
 def is_web_logging_enabled():
     """Returns true if the web logging is required to be enabled"""
+    return _is_env_set_to_true(get_env_name_enable_web_logging())
 
-    if os.environ.get(get_old_env_name_enable_web_logging(), None) is not None:
-        from matlab_proxy.util import mwi
 
-        logger = mwi.logger.get()
-        logger.warning(
-            f"Usage of {get_old_env_name_enable_web_logging()} is being deprecated from v0.2.10 and will be removed in a future release.\n Use {get_env_name_enable_web_logging()} instead. "
-        )
-        return (
-            os.environ.get(get_old_env_name_enable_web_logging(), "false").lower()
-            == "true"
-        )
-    return os.environ.get(get_env_name_enable_web_logging(), "false").lower() == "true"
+def get_env_name_enable_ssl():
+    """Returns the environment variable used for enabling/disabling SSL/TLS communication."""
+    return "MWI_ENABLE_SSL"
 
 
 def get_env_name_ssl_cert_file():
@@ -155,3 +160,41 @@ def get_env_name_custom_matlab_root():
 def get_env_name_process_startup_timeout():
     """User specified timeout in seconds for processes launched by matlab-proxy"""
     return "MWI_PROCESS_START_TIMEOUT"
+
+
+def get_env_name_custom_matlab_code():
+    """User specified MATLAB code that will be executed by matlab-proxy upon its start"""
+    return "MWI_MATLAB_STARTUP_SCRIPT"
+
+
+def get_env_name_shutdown_on_idle_timeout():
+    """User specified timeout in minutes for shutdown on idle of matlab-proxy"""
+    return "MWI_SHUTDOWN_ON_IDLE_TIMEOUT"
+
+
+class Experimental:
+    """This class houses functions which are undocumented APIs and Environment variables.
+    Note: Never add any state to this class. Its only intended for use as an abstraction layer
+    for functions which are not ready for prime time.
+    """
+
+    @staticmethod
+    def get_env_name_enable_simulink():
+        """Returns the environment variable name used to enable simulink support"""
+        ##NOTE: Simulink Online is unavailable for general use as of R2023b.
+        return "MWI_ENABLE_SIMULINK"
+
+    @staticmethod
+    def is_simulink_enabled():
+        """Returns true if the simulink online is enabled."""
+        return _is_env_set_to_true(Experimental.get_env_name_enable_simulink())
+
+    @staticmethod
+    def get_env_name_profile_matlab_startup():
+        """Returns the environment variable name used to enable MPA support"""
+        return "MWI_PROFILE_MATLAB_STARTUP"
+
+    @staticmethod
+    def is_matlab_startup_profiling_enabled():
+        """Returns true if the startup profiling is enabled."""
+        return _is_env_set_to_true(Experimental.get_env_name_profile_matlab_startup())

@@ -1,4 +1,4 @@
-# Copyright 2020-2023 The MathWorks, Inc.
+# Copyright 2020-2025 The MathWorks, Inc.
 
 import asyncio
 import datetime
@@ -9,16 +9,64 @@ import time
 from datetime import timedelta, timezone
 from http import HTTPStatus
 
-import aiohttp
 import pytest
-import test_constants
+from aiohttp import WSMsgType
+from aiohttp.web import WebSocketResponse
+from multidict import CIMultiDict
 
+import tests.unit.test_constants as test_constants
 from matlab_proxy import app, util
+from matlab_proxy.app import matlab_view
 from matlab_proxy.util.mwi import environment_variables as mwi_env
 from matlab_proxy.util.mwi.exceptions import EntitlementError, MatlabInstallError
+from tests.unit.fixtures.fixture_auth import patch_authenticate_access_decorator
+from tests.unit.mocks.mock_client import MockWebSocketClient
 
 
-def test_create_app():
+@pytest.mark.parametrize(
+    "no_proxy_user_configuration",
+    [
+        "",
+        "1234.1234.1234, localhost , 0.0.0.0,1.2.3.4",
+        "0.0.0.0",
+        "1234.1234.1234",
+        " 1234.1234.1234 ",
+    ],
+)
+def test_configure_no_proxy_in_env(monkeypatch, no_proxy_user_configuration):
+    """Tests the behavior of the configure_no_proxy_in_env function
+
+    Args:
+        monkeypatch (environment): MonkeyPatches the environment to mimic possible user environment settings
+    """
+    no_proxy_user_configuration_set = set(
+        [val.lstrip().rstrip() for val in no_proxy_user_configuration.split(",")]
+    )
+    # Update the environment to simulate user environment
+    monkeypatch.setenv("no_proxy", no_proxy_user_configuration)
+
+    # This function will modify the environment variables to include 0.0.0.0, localhost & 127.0.0.1
+    app.configure_no_proxy_in_env()
+
+    import os
+
+    modified_no_proxy_env = os.environ.get("no_proxy")
+
+    # Convert to set to compare, as list generated need not be ordered
+    modified_no_proxy_env_set = set(
+        [val.lstrip().rstrip() for val in modified_no_proxy_env.split(",")]
+    )
+
+    expected_no_proxy_configuration_set = {"0.0.0.0", "localhost", "127.0.0.1"}
+
+    # We expect the modified set of values to include the localhost configurations
+    # along with whatever else the user had set with no duplicates.
+    assert modified_no_proxy_env_set == no_proxy_user_configuration_set.union(
+        expected_no_proxy_configuration_set
+    )
+
+
+def test_create_app(event_loop):
     """Test if aiohttp server is being created successfully.
 
     Checks if the aiohttp server is created successfully, routes, startup and cleanup
@@ -32,6 +80,7 @@ def test_create_app():
     # Verify app server has a cleanup task
     # By default there is 1 for clean up task
     assert len(test_server.on_cleanup) > 1
+    event_loop.run_until_complete(test_server["state"].stop_server_tasks())
 
 
 def get_email():
@@ -183,7 +232,7 @@ class FakeServer:
     """Context Manager class which returns a web server wrapped in aiohttp_client pytest fixture
     for testing.
 
-    The server setup and startup does not need to mimick the way it is being done in main() method in app.py.
+    The server setup and startup does not need to mimic the way it is being done in main() method in app.py.
     Setting up the server in the context of Pytest.
     """
 
@@ -201,10 +250,35 @@ class FakeServer:
         self.loop.run_until_complete(self.server.cleanup())
 
 
+@pytest.fixture
+def mock_request(mocker):
+    """Creates a mock request with required attributes"""
+    req = mocker.MagicMock()
+    req.app = {
+        "state": mocker.MagicMock(matlab_port=8000),
+        "settings": {"matlab_protocol": "http", "mwapikey": "test-key"},
+    }
+    req.headers = CIMultiDict()
+    req.cookies = {}
+    return req
+
+
+@pytest.fixture(name="mock_websocket_messages")
+def mock_messages(mocker):
+    # Mock WebSocket messages
+    return [
+        mocker.MagicMock(type=WSMsgType.TEXT, data="test message"),
+        mocker.MagicMock(type=WSMsgType.BINARY, data=b"test binary"),
+        mocker.MagicMock(type=WSMsgType.PING),
+        mocker.MagicMock(type=WSMsgType.PONG),
+    ]
+
+
 @pytest.fixture(name="test_server")
 def test_server_fixture(
-    loop,
+    event_loop,
     aiohttp_client,
+    monkeypatch,
 ):
     """A pytest fixture which yields a test server to be used by tests.
 
@@ -215,11 +289,18 @@ def test_server_fixture(
     Yields:
         aiohttp_client : A aiohttp_client server used by tests.
     """
+    # Disabling the authentication token mechanism explicitly
+    monkeypatch.setenv(mwi_env.get_env_name_enable_mwi_auth_token(), "False")
     try:
-        with FakeServer(loop, aiohttp_client) as test_server:
+        with FakeServer(event_loop, aiohttp_client) as test_server:
             yield test_server
     except ProcessLookupError:
         pass
+    finally:
+        # Cleaning up the env variable related to auth token
+        monkeypatch.delenv(
+            mwi_env.get_env_name_enable_mwi_auth_token(), raising="False"
+        )
 
 
 async def test_get_status_route(test_server):
@@ -233,6 +314,20 @@ async def test_get_status_route(test_server):
     assert resp.status == HTTPStatus.OK
 
 
+async def test_clear_client_id_route(test_server):
+    """Test to check endpoint: "/clear_client_id"
+
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server for sending POST request.
+    """
+
+    state = test_server.server.app["state"]
+    state.active_client = "mock_client_id"
+    resp = await test_server.post("/clear_client_id")
+    assert resp.status == HTTPStatus.OK
+    assert state.active_client is None
+
+
 async def test_get_env_config(test_server):
     """Test to check endpoint : "/get_env_config"
 
@@ -240,11 +335,18 @@ async def test_get_env_config(test_server):
         test_server (aiohttp_client): A aiohttp_client server for sending GET request.
     """
     expected_json_structure = {
-        "authEnabled": None,
-        "authStatus": None,
+        "authentication": {"enabled": False, "status": False},
+        "matlab": {
+            "status": "up",
+            "version": "R2023a",
+            "supportedVersions": ["R2020b", "R2023a"],
+        },
         "doc_url": "foo",
         "extension_name": "bar",
         "extension_name_short_description": "foobar",
+        "should_show_shutdown_button": True,
+        "isConcurrencyEnabled": "foobar",
+        "idleTimeoutDuration": 100,
     }
     resp = await test_server.get("/get_env_config")
     assert resp.status == HTTPStatus.OK
@@ -264,27 +366,37 @@ async def test_start_matlab_route(test_server):
         test_server (aiohttp_client): A aiohttp_client server to send GET request to.
     """
     # Waiting for the matlab process to start up.
-    sleep_interval = 1
-    await wait_for_matlab_to_be_up(test_server, sleep_interval)
+    await wait_for_matlab_to_be_up(
+        test_server, test_constants.CHECK_MATLAB_STATUS_INTERVAL
+    )
 
     # Send get request to end point
     await test_server.put("/start_matlab")
 
     # Check if Matlab restarted successfully
-    await check_for_matlab_startup(test_server)
+    await __check_for_matlab_status(test_server, "starting")
 
 
-async def check_for_matlab_startup(test_server):
+async def __check_for_matlab_status(test_server, status, sleep_interval=0.5):
+    """Helper function to check if the status of MATLAB returned by the server is either of the values mentioned in statuses
+
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server to send HTTP DELETE request.
+        statuses ([str]): Possible MATLAB statuses.
+
+    Raises:
+        ConnectionError: Exception raised if the test_server is not reachable.
+    """
     count = 0
     while True:
         resp = await test_server.get("/get_status")
         assert resp.status == HTTPStatus.OK
         resp_json = json.loads(await resp.text())
-        if resp_json["matlab"]["status"] != "down":
+        if resp_json["matlab"]["status"] == status:
             break
         else:
             count += 1
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(sleep_interval)
             if count > test_constants.FIVE_MAX_TRIES:
                 raise ConnectionError
 
@@ -293,14 +405,20 @@ async def test_stop_matlab_route(test_server):
     """Test to check endpoint : "/stop_matlab"
 
     Sends HTTP DELETE request to stop matlab and checks if matlab status is down.
+
     Args:
         test_server (aiohttp_client): A aiohttp_client server to send HTTP DELETE request.
     """
+    # Arrange
+    # Nothing to arrange
+
+    # Act
     resp = await test_server.delete("/stop_matlab")
     assert resp.status == HTTPStatus.OK
 
-    resp_json = json.loads(await resp.text())
-    assert resp_json["matlab"]["status"] == "down"
+    # Assert
+    # Check if Matlab restarted successfully
+    await __check_for_matlab_status(test_server, "stopping")
 
 
 async def test_root_redirect(test_server):
@@ -357,7 +475,7 @@ async def test_matlab_proxy_404(proxy_payload, test_server):
     count = 0
     while True:
         resp = await test_server.post(
-            "./1234.html", data=json.dumps(proxy_payload), headers=headers
+            "/1234.html", data=json.dumps(proxy_payload), headers=headers
         )
         if resp.status == HTTPStatus.SERVICE_UNAVAILABLE:
             time.sleep(test_constants.ONE_SECOND_DELAY)
@@ -501,19 +619,6 @@ async def test_matlab_proxy_http_post_request(proxy_payload, test_server):
             raise ConnectionError
 
 
-# While acceessing matlab-proxy directly, the web socket request looks like
-#     {
-#         "connection": "Upgrade",
-#         "Upgrade": "websocket",
-#     }
-# whereas while accessing matlab-proxy with nginx as the reverse proxy, the nginx server
-# modifies the web socket request to
-#     {
-#         "connection": "upgrade",
-#         "upgrade": "websocket",
-#     }
-
-
 async def test_set_licensing_info_put_nlm(test_server):
     """Test to check endpoint : "/set_licensing_info"
 
@@ -550,36 +655,70 @@ async def test_set_licensing_info_put_invalid_license(test_server):
     assert resp.status == HTTPStatus.BAD_REQUEST
 
 
+# While acceessing matlab-proxy directly, the web socket request looks like
+#     {
+#         "connection": "Upgrade",
+#         "Upgrade": "websocket",
+#     }
+# whereas while accessing matlab-proxy with nginx as the reverse proxy, the nginx server
+# modifies the web socket request to
+#     {
+#         "connection": "upgrade",
+#         "upgrade": "websocket",
+#     }
 @pytest.mark.parametrize(
     "headers",
     [
-        {
-            "connection": "Upgrade",
-            "Upgrade": "websocket",
-        },
-        {
-            "connection": "upgrade",
-            "upgrade": "websocket",
-        },
+        CIMultiDict(
+            {
+                "connection": "Upgrade",
+                "Upgrade": "websocket",
+            }
+        ),
+        CIMultiDict(
+            {
+                "connection": "upgrade",
+                "upgrade": "websocket",
+            }
+        ),
     ],
     ids=["Uppercase header", "Lowercase header"],
 )
-async def test_matlab_proxy_web_socket(test_server, headers):
-    """Test to check if test_server proxies web socket request to fake matlab server
+async def test_matlab_view_websocket_success(
+    mocker,
+    mock_request,
+    mock_websocket_messages,
+    headers,
+    patch_authenticate_access_decorator,
+):
+    """Test successful websocket connection and message forwarding"""
 
-    Args:
-        test_server (aiohttp_client): Test Server to send HTTP Requests.
-    """
+    # Configure request for WebSocket
+    mock_request.headers = headers
+    mock_request.method = "GET"
+    mock_request.path_qs = "/test"
 
-    sleep_interval = 1
-    await wait_for_matlab_to_be_up(test_server, sleep_interval)
-    resp = await test_server.ws_connect("/http_ws_request.html/", headers=headers)
-    text = await resp.receive()
-    websocket_response_string = (
-        "Hello world"  # This string is set by the web_socket_handler in devel.py
+    # Mock WebSocket setup
+    mock_ws_server = mocker.MagicMock(spec=WebSocketResponse)
+    mocker.patch(
+        "matlab_proxy.app.aiohttp.web.WebSocketResponse", return_value=mock_ws_server
     )
-    assert text.type == aiohttp.WSMsgType.TEXT
-    assert text.data == websocket_response_string
+
+    # Mock WebSocket client
+    mock_ws_client = MockWebSocketClient(messages=mock_websocket_messages)
+    mocker.patch(
+        "matlab_proxy.app.aiohttp.ClientSession.ws_connect", return_value=mock_ws_client
+    )
+
+    # Execute
+    result = await matlab_view(mock_request)
+
+    # Assertions
+    assert result == mock_ws_server
+    assert mock_ws_server.send_str.call_count == 1
+    assert mock_ws_server.send_bytes.call_count == 1
+    assert mock_ws_server.ping.call_count == 1
+    assert mock_ws_server.pong.call_count == 1
 
 
 async def test_set_licensing_info_put_mhlm(test_server):
@@ -631,19 +770,21 @@ async def test_set_licensing_info_delete(test_server):
 
 
 async def test_set_termination_integration_delete(test_server):
-    """Test to check endpoint : "/terminate_integration"
+    """Test to check endpoint : "/shutdown_integration"
 
-    Test which sends HTTP DELETE request to terminate integration. Checks if integration is terminated
+    Test which sends HTTP DELETE request to shutdown integration. Checks if integration is shutdown
     successfully.
     Args:
         test_server (aiohttp_client):  A aiohttp_client server to send HTTP GET request.
     """
-    try:
-        resp = await test_server.delete("/terminate_integration")
-        resp_json = json.loads(await resp.text())
-        assert resp.status == HTTPStatus.OK and resp_json["loadUrl"] == "../"
-    except ProcessLookupError:
-        pass
+    # Not awaiting the response here explicitly as the event loop is stopped in the
+    # handler function.
+    test_server.delete("/shutdown_integration")
+
+    resp = await test_server.get("/")
+
+    # Assert that the service is unavailable
+    assert resp.status == 503
 
 
 def test_get_access_url(test_server):
@@ -652,6 +793,7 @@ def test_get_access_url(test_server):
     Args:
         test_server (aiohttp.web.Application): Application Server
     """
+
     assert "127.0.0.1" in util.get_access_url(test_server.app)
 
 
@@ -792,13 +934,25 @@ async def set_licensing_info_fixture(
         "token": "abc@nlm",
         "emailAddress": "abc@nlm",
         "sourceId": "abc@nlm",
+        "matlabVersion": "R2023a",
     }
+
+    # Waiting for the matlab process to start up.
+    await wait_for_matlab_to_be_up(test_server, test_constants.ONE_SECOND_DELAY)
+
+    # Set matlab_version to None to check if the version is updated
+    # after sending a request t o /set_licensing_info endpoint
+    test_server.server.app["settings"]["matlab_version"] = None
+
     # Pre-req: stop the matlab that got started during test server startup
     resp = await test_server.delete("/stop_matlab")
     assert resp.status == HTTPStatus.OK
 
     resp = await test_server.put("/set_licensing_info", data=json.dumps(data))
     assert resp.status == HTTPStatus.OK
+
+    # Assert whether the matlab_version was updated from None when licensing type is mhlm
+    assert test_server.server.app["settings"]["matlab_version"] == "R2023a"
 
     return test_server
 
@@ -887,7 +1041,7 @@ async def test_set_licensing_mhlm_single_entitlement(
     assert resp_json["licensing"]["entitlementId"] == "Entitlement3"
 
     # validate that MATLAB has started correctly
-    await check_for_matlab_startup(test_server)
+    await __check_for_matlab_status(test_server, "up", sleep_interval=2)
 
     # test-cleanup: unset licensing
     # without this, we can leave test drool related to cached license file
@@ -940,8 +1094,7 @@ async def test_set_licensing_mhlm_multi_entitlements(
     # user hasn't selected the license yet
     resp = await test_server.get("/get_status")
     assert resp.status == HTTPStatus.OK
-    resp_json = json.loads(await resp.text())
-    assert resp_json["matlab"]["status"] == "down"
+    __check_for_matlab_status(test_server, "down")
 
     # test-cleanup: unset licensing
     resp = await test_server.delete("/set_licensing_info")
@@ -965,7 +1118,7 @@ async def test_update_entitlement_with_correct_entitlement(set_licensing_info):
     assert resp.status == HTTPStatus.OK
 
 
-async def test_get_auth_token_route(test_server, monkeypatch):
+async def test_get_auth_token_route(test_server):
     """Test to check endpoint : "/get_auth_token"
 
     Args:
@@ -974,5 +1127,74 @@ async def test_get_auth_token_route(test_server, monkeypatch):
     resp = await test_server.get("/get_auth_token")
     res_json = await resp.json()
     # Testing the default dev configuration where the auth is disabled
-    assert res_json["authToken"] == None
+    assert res_json["token"] == None
     assert resp.status == HTTPStatus.OK
+
+
+async def test_check_for_concurrency(test_server):
+    """Test to check the response from endpoint : "/get_status" with different query parameters
+
+    Test requests the "/get_status" endpoint with different query parameters to check
+    how the server responds.
+
+    Args:
+        test_server (aiohttp_client): A aiohttp_client server to send GET request to.
+    """
+    # Request server to check if concurrency check is enabled.
+
+    env_resp = await test_server.get("/get_env_config")
+    assert env_resp.status == HTTPStatus.OK
+    env_resp_json = json.loads(await env_resp.text())
+    if env_resp_json["isConcurrencyEnabled"]:
+        # A normal request should not repond with client id or active status
+        status_resp = await test_server.get("/get_status")
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" not in status_resp_json
+        assert "isActiveClient" not in status_resp_json
+
+        # When the request comes from the desktop app the server should respond with client id and active status
+        status_resp = await test_server.get('/get_status?IS_DESKTOP="true"')
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" in status_resp_json
+        assert "isActiveClient" in status_resp_json
+
+        # When the desktop client requests for a session transfer without client id respond with cliend id and active status should be true
+        status_resp = await test_server.get(
+            '/get_status?IS_DESKTOP="true"&TRANSFER_SESSION="true"'
+        )
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" in status_resp_json
+        assert status_resp_json["isActiveClient"] == True
+
+        # When transfering the session is requested by a client whihc is not a desktop client it should be ignored
+        status_resp = await test_server.get('/get_status?TRANSFER_SESSION="true"')
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" not in status_resp_json
+        assert "isActiveClient" not in status_resp_json
+
+        # When the desktop client requests for a session transfer with a client id then respond only with active status
+        status_resp = await test_server.get(
+            '/get_status?IS_DESKTOP="true"&MWI_CLIENT_ID="foobar"&TRANSFER_SESSION="true"'
+        )
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" not in status_resp_json
+        assert status_resp_json["isActiveClient"] == True
+    else:
+        # When Concurrency check is disabled the response should not contain client id or active status
+        status_resp = await test_server.get("/get_status")
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" not in status_resp_json
+        assert "isActiveClient" not in status_resp_json
+        status_resp = await test_server.get(
+            '/get_status?IS_DESKTOP="true"&MWI_CLIENT_ID="foobar"&TRANSFER_SESSION="true"'
+        )
+        assert status_resp.status == HTTPStatus.OK
+        status_resp_json = json.loads(await status_resp.text())
+        assert "clientId" not in status_resp_json
+        assert "isActiveClient" not in status_resp_json

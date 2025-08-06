@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2023 The MathWorks, Inc.
+# Copyright 2020-2025 The MathWorks, Inc.
 import os
 from pathlib import Path
 from shutil import which
@@ -7,6 +7,7 @@ import setuptools
 from setuptools.command.install import install
 
 import matlab_proxy
+import matlab_proxy_manager
 from matlab_proxy.default_configuration import config
 
 
@@ -16,7 +17,7 @@ class InstallNpm(install):
         npm_path = which("npm")
         if not npm_path:
             raise Exception(
-                "npm must be installered and on the path during package install!"
+                "npm must be installed and on the path during package install!"
             )
 
         npm_install = [npm_path, "install"]
@@ -53,22 +54,31 @@ TESTS_REQUIRES = [
     "pytest",
     "pytest-env",
     "pytest-cov",
+    "pytest-timeout",
     "pytest-mock",
     "pytest-aiohttp",
+    "pytest-timeout",
     "psutil",
     "urllib3",
-    "requests",
     "pytest-playwright",
 ]
 
-INSTALL_REQUIRES = ["aiohttp>=3.7.4", "psutil", "aiohttp_session[secure]"]
+INSTALL_REQUIRES = [
+    "aiohttp>=3.7.4",
+    "aiohttp_session[secure]",
+    "importlib-metadata",
+    "importlib-resources",
+    "psutil",
+    "watchdog",
+    "requests",
+]
 
 HERE = Path(__file__).parent.resolve()
 long_description = (HERE / "README.md").read_text()
 
 setuptools.setup(
     name="matlab-proxy",
-    version="0.10.0",
+    version="0.25.1",
     url=config["doc_url"],
     author="The MathWorks, Inc.",
     author_email="cloud@mathworks.com",
@@ -107,6 +117,7 @@ setuptools.setup(
         "console_scripts": [
             f"{matlab_proxy.get_executable_name()} = matlab_proxy.app:main",
             f"{matlab_proxy.get_executable_name()}-list-servers = matlab_proxy.util.list_servers:print_server_info",
+            f"{matlab_proxy_manager.get_executable_name()} = matlab_proxy_manager.web.app:main",
         ],
     },
     include_package_data=True,

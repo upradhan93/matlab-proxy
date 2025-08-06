@@ -1,31 +1,31 @@
-# Copyright 2020-2023 The MathWorks, Inc.
-"""This file contains validators for various runtime artefacts.
-A validator is defined as a function which verifies the input and 
-returns it unchanged if validation passes. 
+# Copyright 2020-2025 The MathWorks, Inc.
+"""This file contains validators for various runtime artifacts.
+A validator is defined as a function which verifies the input and
+returns it unchanged if validation passes.
 Returning inputs allows validators to be used inline with the input.
 
-Example: 
+Example:
 Original code: if( input ):
 With validator: if (valid(input)):
 
 Exceptions are thrown to signal failure.
 """
-import errno
-import os
-from pathlib import Path
-import pkg_resources
-import socket
-from typing import List
 
+import errno
+import math
+import os
+import socket
+from pathlib import Path
+from typing import List
 
 import matlab_proxy
 from matlab_proxy import util
-from matlab_proxy.util import system
 from matlab_proxy.constants import VERSION_INFO_FILE_NAME
+from matlab_proxy.util import system
 
 from . import environment_variables as mwi_env
 from . import logger as mwi_logger
-from .exceptions import MatlabInstallError, FatalError
+from .exceptions import FatalError, MatlabInstallError
 
 logger = mwi_logger.get()
 
@@ -179,30 +179,31 @@ def validate_env_config(config):
     Returns:
         Dict: Containing data specific to the environment in which MATLAB proxy is being used in.
     """
-    available_configs = __get_configs()
+    from matlab_proxy.default_configuration import get_required_config
+
+    available_configs: dict = __get_configs()
     config = config.lower()
 
     # Check if supplied config is present in the available configs
     if config in available_configs:
-        # Check if all keys are present in the supplied config
-        default_config_keys = available_configs[
-            matlab_proxy.get_default_config_name()
-        ].keys()
         env_config = available_configs[config]
+        required_keys = get_required_config()
 
-        for key in default_config_keys:
-            if not key in env_config:
-                error_message = f"{key} missing in the provided {config} configuration"
-                logger.error(error_message)
-                raise FatalError(error_message)
+        # Check if all required keys are present in the supplied config
+        valid = all(key in env_config for key in required_keys)
+        if not valid:
+            error_message = (
+                f"Required key/s missing in the provided {config} configuration"
+            )
+            logger.error(error_message)
+            raise FatalError(error_message)
 
-        logger.debug(f"Successfully validated provided {config} configuration")
+        logger.debug("Successfully validated provided %s configuration", config)
         return env_config
 
-    else:
-        error_message = f"{config} is not a valid config. Available configs are : {list(available_configs.keys())}"
-        logger.error(error_message)
-        raise FatalError(error_message)
+    error_message = f"{config} is not a valid config. Available configs are : {list(available_configs.keys())}"
+    logger.error(error_message)
+    raise FatalError(error_message)
 
 
 def __get_configs():
@@ -213,64 +214,66 @@ def __get_configs():
         Dict: Contains all the values present in 'matlab_web_desktop_configs' entry_point from all the packages
         installed in the current environment.
     """
+    import importlib_metadata
+
+    matlab_proxy_eps = importlib_metadata.entry_points(
+        group=matlab_proxy.get_entrypoint_name()
+    )
     configs = {}
-    for entry_point in pkg_resources.iter_entry_points(
-        matlab_proxy.get_entrypoint_name()
-    ):
+    for entry_point in matlab_proxy_eps:
         configs[entry_point.name.lower()] = entry_point.load()
 
     return configs
 
 
-def validate_ssl_cert_file(a_ssl_cert_file):
+def validate_ssl_file(ssl_file, env_name):
     """Ensures that its a valid readable file"""
 
     # Empty strings are valid inputs
-    if a_ssl_cert_file:
-        # String is not empty, check to see if the file exists
-        if not os.path.isfile(a_ssl_cert_file):
-            error_message = f"MWI_SSL_CERT_FILE is not a valid file: {a_ssl_cert_file}"
-            logger.error(error_message)
-            raise FatalError(error_message)
+    if not ssl_file:
+        return None
 
-    # string is either empty, or is a valid file on disk
-    return a_ssl_cert_file
-
-
-def validate_ssl_key_and_cert_file(a_ssl_key_file, a_ssl_cert_file):
-    """Ensures that its a valid readable file"""
-
-    if a_ssl_cert_file is None and a_ssl_key_file is None:
-        # Both values are None, this is acceptable.
-        return a_ssl_key_file, a_ssl_cert_file
-
-    # Implies atleast one value is not None.
-
-    # Cert file is either empty or valid file.
-    cert_file = validate_ssl_cert_file(a_ssl_cert_file=a_ssl_cert_file)
-
-    if cert_file is None and a_ssl_key_file is not None:
-        error_message = (
-            f"MWI_SSL_CERT_FILE must be provided to use the MWI_SSL_KEY_FILE"
-        )
+    # String is not empty, check to see if the file exists
+    if not os.path.isfile(ssl_file):
+        error_message = f"{env_name} is not a valid file: {ssl_file}"
         logger.error(error_message)
         raise FatalError(error_message)
 
-    if a_ssl_key_file is None and cert_file is not None:
+    # string is a valid file on disk
+    return ssl_file
+
+
+def validate_ssl_key_and_cert_file(ssl_key_file, ssl_cert_file):
+    """Validates that provided SSL files are valid readable files"""
+    env_name_ssl_cert_file = mwi_env.get_env_name_ssl_cert_file()
+    env_name_ssl_key_file = mwi_env.get_env_name_ssl_key_file()
+
+    if not ssl_cert_file and not ssl_key_file:
+        # Both values are falsy, this is acceptable and signify that HTTPS communication is disabled.
+        return None, None
+
+    # Implies at least one value is not falsy.
+
+    # Validating cert file- Cert file is either empty or valid file.
+    cert_file = validate_ssl_file(
+        ssl_file=ssl_cert_file, env_name=env_name_ssl_cert_file
+    )
+    if not cert_file:
+        error_message = f"{env_name_ssl_cert_file} must be provided to use the {env_name_ssl_key_file}"
+        logger.error(error_message)
+        raise FatalError(error_message)
+
+    # Validating key file
+    key_file = validate_ssl_file(ssl_file=ssl_key_file, env_name=env_name_ssl_key_file)
+    if not ssl_key_file:
         logger.info(
-            f"MWI_SSL_KEY_FILE is not provided, ensure that your MWI_SSL_CERT_FILE : '{cert_file}' contains a private key"
+            f"{env_name_ssl_key_file} is not provided, ensure that your {env_name_ssl_cert_file} : '{cert_file}' contains a private key"
         )
 
-    if a_ssl_key_file:
-        if not os.path.isfile(a_ssl_key_file):
-            error_message = f"MWI_SSL_KEY_FILE is not a valid file: {a_ssl_key_file}"
-            logger.error(error_message)
-            raise FatalError(error_message)
-
     logger.info(
-        f"SSL Keys provided were: MWI_SSL_CERT_FILE: {a_ssl_cert_file} & MWI_SSL_KEY_FILE: {a_ssl_key_file}"
+        f"SSL Keys provided were: {env_name_ssl_cert_file}: {cert_file} & {env_name_ssl_key_file}: {key_file}"
     )
-    return a_ssl_key_file, a_ssl_cert_file
+    return key_file, cert_file
 
 
 def validate_use_existing_licensing(use_existing_license):
@@ -317,29 +320,69 @@ def validate_matlab_root_path(matlab_root: Path, is_custom_matlab_root: bool):
     Raises:
         MatlabInstallError
     """
-    warn_string = ""
-    if is_custom_matlab_root:
-        warn_string += f"""Edit the environment variable {mwi_env.get_env_name_custom_matlab_root()} to the correct path, and restart matlab-proxy."""
+
+    # When Custom MATLAB root is provided, validate the existence of the
+    # VersionInfo.xml file at the specified path else, its optional (for matlab wrapper usecase)
+    custom_matlab_root_warn_str = f"Edit the environment variable {mwi_env.get_env_name_custom_matlab_root()} to the correct path, and restart matlab-proxy. "
 
     try:
         __validate_if_paths_exist([matlab_root])
-        logger.info(
+        logger.debug(
             f"MATLAB root path: {matlab_root} exists, continuing to verify its validity..."
         )
 
     except OSError as exc:
         logger.error(". ".join(exc.args))
-        raise MatlabInstallError(warn_string)
+        raise MatlabInstallError(
+            custom_matlab_root_warn_str if is_custom_matlab_root else ""
+        )
 
     version_info_file_path = matlab_root / VERSION_INFO_FILE_NAME
 
     if not version_info_file_path.is_file():
-        log_warn_string = (
-            warn_string + f"Unable to locate {VERSION_INFO_FILE_NAME} at {matlab_root}"
-        )
-        logger.warn(log_warn_string)
+        warn_str = f"Unable to locate {VERSION_INFO_FILE_NAME} at {matlab_root}"
+        # If VersionInfo.xml file is missing when a custom MATLAB root is provided, then
+        # raise an error with a detailed message
+        if is_custom_matlab_root:
+            log_error_string = custom_matlab_root_warn_str + warn_str
+            raise MatlabInstallError(log_error_string)
 
-        # Returning None as matlab_root could not be determined
-        return None
+        else:
+            # No VersionInfo.xml file is present and its not a custom MATLAB root, implies a matlab wrapper is
+            # being used, so warn the user and return None as MATLAB root could not be determined
+            logger.warning(warn_str)
+            return None
 
     return matlab_root
+
+
+def validate_idle_timeout(timeout):
+    """Validate if IDLE timeout for matlab-proxy
+
+    Args:
+        timeout (None | int): IDLE timeout for shutdown of matlab-proxy.
+
+    Raises:
+        ValueError: If a non-numerical value is supplied other than None.
+
+    Returns:
+        None | int : The timeout value.
+    """
+    if not timeout:
+        return timeout
+
+    try:
+        # Convert timeout to seconds
+        timeout = math.ceil(float(timeout) * 60)
+
+        if timeout <= 0:
+            raise ValueError
+
+        logger.info(f"MATLAB IDLE timeout set to {timeout} seconds")
+        return timeout
+
+    except ValueError:
+        logger.warn(
+            f"Invalid value supplied for {mwi_env.get_env_name_shutdown_on_idle_timeout()}: {timeout}. Continuing without any IDLE timeout."
+        )
+        return None

@@ -23,13 +23,31 @@ The following table describes all the environment variables that you can set to 
 | **MWI_ENABLE_WEB_LOGGING** | string | `"True"` | Set this value to `"True"` to see additional web server logs. |
 | **MWI_CUSTOM_HTTP_HEADERS** | string  |`'{"Content-Security-Policy": "frame-ancestors *.example.com:*"}'`<br /> OR <br />`"/path/to/your/custom/http-headers.json"` |Specify valid HTTP headers as JSON data in a string format. <br /> Alternatively, specify the full path to the JSON file containing valid HTTP headers instead. These headers are injected into the HTTP response sent to the browser. </br> For  more information, see the [Custom HTTP Headers](#custom-http-headers) section.|
 | **TMPDIR** or **TMP** | string | `"/path/for/MATLAB/to/use/as/tmp"` | Set either one of these variables to control the temporary folder used by MATLAB. `TMPDIR` takes precedence over `TMP` and if neither variable is set, `/tmp` is the default value used by MATLAB. |
+| **MWI_ENABLE_SSL** | string | `"False"` | When set to `True`, the values in `MWI_SSL_CERT_FILE & MWI_SSL_KEY_FILE` are used to configure matlab-proxy to use SSL. If you do not provide a CERT and KEY file using these variables, the software generates a self-signed certificate. Defaults to `False`.|
 | **MWI_SSL_CERT_FILE** | string | `"/path/to/certificate.pem"` | The certfile string must be the path to a single file in PEM format containing the certificate as well as any number of CA certificates needed to establish the certificate’s authenticity. See [SSL Support](./SECURITY.md#ssl-support) for more information.|
 | **MWI_SSL_KEY_FILE** | string | `"/path/to/keyfile.key"` | The keyfile string, if present, must point to a file containing the private key. Otherwise the private key will be taken from certfile as well. |
-| **MWI_ENABLE_TOKEN_AUTH** | string | `"True"` | When set to `True`, matlab-proxy will require users to provide the security token to access the proxy. One can optionally set the token using the environment variable `MWI_AUTH_TOKEN`. If `MWI_AUTH_TOKEN` is not specified, then a token will be generated for you. <br />The default value is `False` . See [Token-Based Authentication](./SECURITY.md#token-based-authentication) for more information.|
+| **MWI_ENABLE_TOKEN_AUTH** | string | `"True"` | When you set the variable to `True`, matlab-proxy requires users to provide the security token to access the proxy. Optionally, set the token using the environment variable `MWI_AUTH_TOKEN`. If you do not specify `MWI_AUTH_TOKEN`, the software generates a token for you. <br />For more information, see [Token-Based Authentication](./SECURITY.md#token-based-authentication) for more information.
 | **MWI_AUTH_TOKEN** | string (optional) | `"AnyURLSafeToken"` | Specify a custom `token` for matlab-proxy to use with [Token-Based Authentication](./SECURITY.md#token-based-authentication). A token can safely contain any combination of alpha numeric text along with the following permitted characters: `- .  _  ~`.<br />When absent matlab-proxy will generate a random URL safe token. |
 | **MWI_USE_EXISTING_LICENSE** | string (optional) | `"True"` | When set to True, matlab-proxy will not ask you for additional licensing information and will try to launch an already activated MATLAB on your system PATH.
 | **MWI_CUSTOM_MATLAB_ROOT** | string (optional) | `"/path/to/matlab/root/"` | Optionally, provide a custom path to MATLAB root. For more information see [Adding MATLAB to System Path](#adding-matlab-to-system-path) |
 | **MWI_PROCESS_START_TIMEOUT** | integer (optional) | `1234` |  This field controls the time (in seconds) for which `matlab-proxy` waits for the processes it spins up, viz: MATLAB & Xvfb, to respond. By default, this value is `600 seconds`. A timeout could either indicate an issue with the spawned processes or be a symptom of a resource-constrained environment. Increase this value if your environment needs more time for the spawned processes to start.|
+| **MWI_MATLAB_STARTUP_SCRIPT** | string (optional) | `"addpath('/path/to/a/folder'), c=12"` | Executes string provided at MATLAB startup. For details, see [Run Custom MATLAB Startup Code](#run-custom-matlab-startup-code) |
+| **MWI_SHUTDOWN_ON_IDLE_TIMEOUT** | integer (optional) | 60 | Defines the duration in minutes, that `matlab-proxy` remains idle before shutting down. When you do not set the variable, `matlab-proxy` will not shut down when idle. For details, [see Shutdown on Idle](#shutdown-on-idle). |
+
+## Shutdown on Idle
+
+Set the environment variable `MWI_SHUTDOWN_ON_IDLE_TIMEOUT` to the number of minutes with no user activity after which matlab-proxy will shutdown.
+
+This timer resets when we detect:
+* Usage of MATLAB from the Desktop
+* Execution of MATLAB code
+* Execution of MATLAB code from jupyter notebooks
+
+<p align="center">
+  <img width="800" src="./img/shutdown_warning.png">
+</p>
+
+Use this environment variable to clean up idle system resources.
 
 ## Adding MATLAB to System Path
 
@@ -97,8 +115,72 @@ For more information about `Content-Security-Policy` header,  check the [Mozilla
 
 **NOTE**: Setting custom HTTP headers is an advanced operation, only use this functionality if you are familiar with HTTP headers.
 
+
+### Proxy Support
+
+`matlab-proxy` support for proxies is based on the support available for them in the `aiohttp` package. [AIOHTTP Proxy Support](https://docs.aiohttp.org/en/stable/client_advanced.html#proxy-support).
+
+`matlab-proxy` has configured its usage of `aiohttp` to honor the environment variables that are used to configure proxy environments. viz: `http_proxy, https_proxy, no_proxy` 
+
+`matlab-proxy` however needs to communicate via HTTP(S) with several processes including MATLAB on the machine on which it is running, and will automatically add the following values into the `no_proxy` environment variable:
+1. localhost
+1. 0.0.0.0
+1. 127.0.0.1
+
+#### Example Usage
+
+Start a web proxy on your machine using the `ubuntu/squid` container:
+```bash
+docker run --rm --name squid-container -e TZ=UTC -p 3128:3128 ubuntu/squid:5.2-22.04_beta
+```
+
+From another system terminal, configure the environment variables to use this server:
+```bash
+# Configure your environment to use the SQUID Container as its web proxy
+export http_proxy=http://your.machine.fqdn.com:3128 && \
+export HTTP_PROXY=${http_proxy} \
+       HTTPS_PROXY=${http_proxy} \
+       https_proxy=${http_proxy} \
+       MW_PROXY_HOST=your.machine.fqdn.com MW_PROXY_PORT=3128 \
+       PROXY_SETTINGS=${http_proxy}
+
+# Start matlab-proxy-app from this terminal
+matlab-proxy-app
+```
+Replace `your.machine.fqdn.com` with the FQDN for the machine on which the `ubuntu/squid` container is running.
+
+The logs from the SQUID container terminal should show activity when attempting to login to MATLAB through matlab-proxy.
+
+### Run Custom MATLAB Startup Code
+
+Use the environment variable `MWI_MATLAB_STARTUP_SCRIPT` to specify MATLAB code to run at startup. 
+
+When you start MATLAB using `matlab-proxy`, MATLAB will first run a `startup.m` file, if one exists on your path. For details, see [User-defined startup script for MATLAB](https://www.mathworks.com/help/matlab/ref/startup.html). MATLAB will then run any code you have provided as a string to the `MWI_MATLAB_STARTUP_SCRIPT` environment variable.
+
+
+You might want to run code at startup to:
+1. Add a folder to the MATLAB search path before you run a script.
+2. Set a constant in the workspace.
+
+For example, to set variables `c1` and `c2`, with values `124` and `'xyz'`, respectively, and to add the folder `C:\Windows\Temp` to the MATLAB search path, run the command:
+```bash
+env MWI_MATLAB_STARTUP_SCRIPT="c1=124, c2='xyz', addpath('C:\Windows\Temp')" matlab-proxy-app
+```
+To specify a script to run at startup, use the `run` command and provide the path to your script.
+```bash
+env MWI_MATLAB_STARTUP_SCRIPT="run('path/to/startup_script.m')" matlab-proxy-app
+```
+
+If the code you specify throws an error, then after MATLAB starts, you see a variable named `MATLABCustomStartupCodeError` of type `MException` in the workspace. To see the error message, run `disp(MATLABCustomStartupCodeError.message)` in the command window. To see the output of your code, open the file named `startup_code_output.txt` at the location `<USER-HOME-DIR>\.matlab\MWI\hosts\<HOSTNAME>\ports\<MATLAB-PROXY-PORT>\startup_code_output.txt`. The path to this file is also displayed in the terminal from where you started `matlab-proxy`.
+
+Note: Restarting MATLAB from within `matlab-proxy` will run the specified code again.
+
+#### Limitations
+
+* Commands that require user input or open MATLAB editor windows are not supported. Using commands such as `keyboard`, `openExample` or `edit` will render `matlab-proxy` unresponsive.
+
 ----
 
-Copyright 2020-2023 The MathWorks, Inc.
+Copyright 2020-2025 The MathWorks, Inc.
 
 ----

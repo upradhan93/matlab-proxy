@@ -1,4 +1,4 @@
-// Copyright 2020-2023 The MathWorks, Inc.
+// Copyright 2020-2025 The MathWorks, Inc.
 
 import { combineReducers } from 'redux';
 
@@ -10,54 +10,81 @@ import {
     REQUEST_SERVER_STATUS,
     RECEIVE_SERVER_STATUS,
     REQUEST_SET_LICENSING,
-    REQUEST_TERMINATE_INTEGRATION,
+    REQUEST_SHUTDOWN_INTEGRATION,
     REQUEST_STOP_MATLAB,
     REQUEST_START_MATLAB,
     REQUEST_ENV_CONFIG,
+    REQUEST_SERVER_INITIALIZATION,
     RECEIVE_SET_LICENSING,
-    RECEIVE_TERMINATE_INTEGRATION,
+    RECEIVE_SHUTDOWN_INTEGRATION,
     RECEIVE_STOP_MATLAB,
     RECEIVE_START_MATLAB,
     RECEIVE_ERROR,
     RECEIVE_ENV_CONFIG,
     SET_AUTH_STATUS,
     SET_AUTH_TOKEN,
+    SET_CLIENT_ID,
+    RECEIVE_SESSION_STATUS,
+    REQUEST_SESSION_STATUS,
+    RECEIVE_CONCURRENCY_CHECK,
+    WAS_EVER_ACTIVE
 } from '../actions';
 
-// Stores info on whether token authentication enabled on the backend. 
+// Stores info on whether token authentication enabled on the backend.
 // This is enforced by the backend.
-export function authEnabled(state = false, action) {
+export function authEnabled (state = false, action) {
     switch (action.type) {
         case RECEIVE_ENV_CONFIG:
-            return action.config.authEnabled;
+            return action.config.authentication.enabled;
+        default:
+            return state;
+    }
+}
+
+// Stores timeout duration for idle timer.
+export function idleTimeoutDuration (state = null, action) {
+    switch (action.type) {
+        case RECEIVE_ENV_CONFIG:
+            return parseInt(action.config.idleTimeoutDuration);
         default:
             return state;
     }
 }
 
 // Stores status of token authentication.
-export function authStatus(state = false, action) {
+export function authStatus (state = false, action) {
     switch (action.type) {
         case RECEIVE_ENV_CONFIG:
-            return action.config.authStatus;
+            return action.config.authentication.status;
         case SET_AUTH_STATUS:
-            return action.authInfo.authStatus;
+            return action.authentication.status;
         default:
             return state;
     }
 }
 
 // Stores auth token
-export function authToken(state = null, action) {
+export function authToken (state = null, action) {
     switch (action.type) {
         case SET_AUTH_TOKEN:
-            return action.authInfo.authToken;
+            return action.authentication.token;
         default:
             return state;
     }
 }
 
-export function triggerPosition(state = { x: window.innerWidth / 2 + 27, y: 0 }, action) {
+// Stores whether the concurrency is enabled or not
+export function isConcurrencyEnabled (state = false, action) {
+    switch (action.type) {
+        case RECEIVE_ENV_CONFIG:
+        case RECEIVE_CONCURRENCY_CHECK:
+            return action.config.isConcurrencyEnabled;
+        default:
+            return state;
+    }
+}
+
+export function triggerPosition (state = { x: window.innerWidth / 2 + 27, y: 0 }, action) {
     switch (action.type) {
         case SET_TRIGGER_POSITION:
             return { x: action.x, y: action.y };
@@ -66,7 +93,7 @@ export function triggerPosition(state = { x: window.innerWidth / 2 + 27, y: 0 },
     }
 }
 
-export function tutorialHidden(state = false, action) {
+export function tutorialHidden (state = false, action) {
     switch (action.type) {
         case SET_TUTORIAL_HIDDEN:
             return action.hidden;
@@ -75,14 +102,14 @@ export function tutorialHidden(state = false, action) {
     }
 }
 
-export function overlayVisibility(state = false, action) {
+export function overlayVisibility (state = false, action) {
     switch (action.type) {
         case SET_OVERLAY_VISIBILITY:
             return action.visibility;
         case RECEIVE_SERVER_STATUS:
             if (
-                action.previousMatlabPending === true
-                && action.status.matlab.status === "up"
+                action.previousMatlabPending === true &&
+                action.status.matlab.status === 'up'
             ) return false;
         // fall through
         default:
@@ -90,11 +117,11 @@ export function overlayVisibility(state = false, action) {
     }
 }
 
-export function licensingInfo(state = {}, action) {
+export function licensingInfo (state = {}, action) {
     switch (action.type) {
         case RECEIVE_SERVER_STATUS:
         case RECEIVE_SET_LICENSING:
-        case RECEIVE_TERMINATE_INTEGRATION:
+        case RECEIVE_SHUTDOWN_INTEGRATION:
         case RECEIVE_STOP_MATLAB:
         case RECEIVE_START_MATLAB:
             return {
@@ -105,11 +132,11 @@ export function licensingInfo(state = {}, action) {
     }
 }
 
-export function matlabStatus(state = 'down', action) {
+export function matlabStatus (state = 'down', action) {
     switch (action.type) {
         case RECEIVE_SERVER_STATUS:
         case RECEIVE_SET_LICENSING:
-        case RECEIVE_TERMINATE_INTEGRATION:
+        case RECEIVE_SHUTDOWN_INTEGRATION:
         case RECEIVE_STOP_MATLAB:
         case RECEIVE_START_MATLAB:
             return action.status.matlab.status;
@@ -121,12 +148,54 @@ export function matlabStatus(state = 'down', action) {
     }
 }
 
-
-export function wsEnv(state = null, action) {
+export function matlabVersionOnPath (state = null, action) {
     switch (action.type) {
         case RECEIVE_SERVER_STATUS:
         case RECEIVE_SET_LICENSING:
-        case RECEIVE_TERMINATE_INTEGRATION:
+            return action.status.matlab.version;
+        case RECEIVE_ENV_CONFIG:
+            return action.config.matlab.version;
+        default:
+            return state;
+    }
+}
+
+export function matlabBusyStatus (state = null, action) {
+    switch (action.type) {
+        case RECEIVE_SERVER_STATUS:
+            return action.status.matlab.busyStatus;
+        // busy status has no meaning if MATLAB is starting or down.
+        case RECEIVE_STOP_MATLAB:
+        case RECEIVE_START_MATLAB:
+            return null;
+
+        default:
+            return state;
+    }
+}
+
+export function supportedMatlabVersions (state = null, action) {
+    switch (action.type) {
+        case RECEIVE_ENV_CONFIG:
+            return action.config.matlab.supportedVersions;
+        default:
+            return state;
+    }
+}
+export function isActiveClient (state = true, action) {
+    switch (action.type) {
+        case RECEIVE_SESSION_STATUS:
+            return action.status.isActiveClient;
+        default:
+            return state;
+    }
+}
+
+export function wsEnv (state = null, action) {
+    switch (action.type) {
+        case RECEIVE_SERVER_STATUS:
+        case RECEIVE_SET_LICENSING:
+        case RECEIVE_SHUTDOWN_INTEGRATION:
         case RECEIVE_STOP_MATLAB:
         case RECEIVE_START_MATLAB:
             return action.status.wsEnv;
@@ -135,18 +204,19 @@ export function wsEnv(state = null, action) {
     }
 }
 
-export function isFetching(state = false, action) {
+export function isFetching (state = false, action) {
     switch (action.type) {
         case REQUEST_SERVER_STATUS:
         case REQUEST_SET_LICENSING:
-        case REQUEST_TERMINATE_INTEGRATION:
+        case REQUEST_SHUTDOWN_INTEGRATION:
         case REQUEST_STOP_MATLAB:
         case REQUEST_START_MATLAB:
         case REQUEST_ENV_CONFIG:
+        case REQUEST_SESSION_STATUS:
             return true;
         case RECEIVE_SERVER_STATUS:
         case RECEIVE_SET_LICENSING:
-        case RECEIVE_TERMINATE_INTEGRATION:
+        case RECEIVE_SHUTDOWN_INTEGRATION:
         case RECEIVE_STOP_MATLAB:
         case RECEIVE_START_MATLAB:
         case RECEIVE_ERROR:
@@ -157,11 +227,23 @@ export function isFetching(state = false, action) {
     }
 }
 
-export function hasFetched(state = false, action) {
+export function isFetchingServerStatus (state = false, action) {
+    switch (action.type) {
+        case REQUEST_SERVER_STATUS:
+            return true;
+        case RECEIVE_SERVER_STATUS:
+        case RECEIVE_ERROR:
+            return false;
+        default:
+            return state;
+    }
+}
+
+export function hasFetched (state = false, action) {
     switch (action.type) {
         case RECEIVE_SERVER_STATUS:
         case RECEIVE_SET_LICENSING:
-        case RECEIVE_TERMINATE_INTEGRATION:
+        case RECEIVE_SHUTDOWN_INTEGRATION:
         case RECEIVE_STOP_MATLAB:
         case RECEIVE_START_MATLAB:
             return true;
@@ -170,15 +252,33 @@ export function hasFetched(state = false, action) {
     }
 }
 
-export function isSubmitting(state = false, action) {
+export function hasClientInitialized (state = false, action) {
+    switch (action.type) {
+        case REQUEST_SERVER_INITIALIZATION:
+            return true;
+        default:
+            return state;
+    }
+}
+
+export function wasEverActive (state = false, action) {
+    switch (action.type) {
+        case WAS_EVER_ACTIVE:
+            return true;
+        default:
+            return state;
+    }
+}
+
+export function isSubmitting (state = false, action) {
     switch (action.type) {
         case REQUEST_SET_LICENSING:
-        case REQUEST_TERMINATE_INTEGRATION:
+        case REQUEST_SHUTDOWN_INTEGRATION:
         case REQUEST_STOP_MATLAB:
         case REQUEST_START_MATLAB:
             return true;
         case RECEIVE_SET_LICENSING:
-        case RECEIVE_TERMINATE_INTEGRATION:
+        case RECEIVE_SHUTDOWN_INTEGRATION:
         case RECEIVE_STOP_MATLAB:
         case RECEIVE_START_MATLAB:
         case RECEIVE_ERROR:
@@ -188,11 +288,11 @@ export function isSubmitting(state = false, action) {
     }
 }
 
-export function fetchFailCount(state = 0, action) {
+export function fetchFailCount (state = 0, action) {
     switch (action.type) {
         case RECEIVE_SERVER_STATUS:
         case RECEIVE_SET_LICENSING:
-        case RECEIVE_TERMINATE_INTEGRATION:
+        case RECEIVE_SHUTDOWN_INTEGRATION:
         case RECEIVE_STOP_MATLAB:
         case RECEIVE_START_MATLAB:
             return 0;
@@ -200,31 +300,42 @@ export function fetchFailCount(state = 0, action) {
             return state + 1;
         default:
             return state;
-
     }
 }
 
-export function loadUrl(state = null, action) {
+export function loadUrl (state = null, action) {
     switch (action.type) {
-        case RECEIVE_TERMINATE_INTEGRATION:
+        case RECEIVE_SHUTDOWN_INTEGRATION:
             return action.loadUrl;
         default:
             return state;
     }
 }
 
-export function error(state = null, action) {
+export function warnings (state = null, action) {
+    switch (action.type) {
+        case RECEIVE_SERVER_STATUS: {
+            const warnings = action.status.warnings;
+            return warnings.length > 0
+                ? warnings
+                : null;
+        }
+        default:
+            return state;
+    }
+}
+
+export function error (state = null, action) {
     switch (action.type) {
         case SET_AUTH_STATUS:
-            if (action?.authInfo?.error !== null) {
-                const { message, type } = action.authInfo.error
+            if (action?.authentication?.error !== null) {
+                const { message, type } = action.authentication.error;
                 return {
-                    message: message,
-                    type: type,
+                    message,
+                    type,
                     logs: null
-                }
-            }
-            else return null;
+                };
+            } else return null;
         case RECEIVE_ERROR:
             return {
                 message: action.error,
@@ -233,55 +344,85 @@ export function error(state = null, action) {
             };
         case RECEIVE_SERVER_STATUS:
         case RECEIVE_SET_LICENSING:
-        case RECEIVE_TERMINATE_INTEGRATION:
+        case RECEIVE_SHUTDOWN_INTEGRATION:
         case RECEIVE_STOP_MATLAB:
         case RECEIVE_START_MATLAB:
-            return action.status.error ? {
-                message: action.status.error.message,
-                logs: action.status.error.logs,
-                type: action.status.error.type
-            } : null;
+            return action.status.error
+                ? {
+                    message: action.status.error.message,
+                    logs: action.status.error.logs,
+                    type: action.status.error.type
+                }
+                : null;
         default:
             return state;
     }
 }
 
-export function envConfig(state = null, action) {
+export function envConfig (state = null, action) {
     switch (action.type) {
         case RECEIVE_ENV_CONFIG:
-            // Token authentication info is also sent as a response to /get_env_config endpoint.
-            // As its already stored in 'authStatus', 'authEnabled' and 'authToken', ignoring it in envConfig.
-            const { authStatus, authEnabled, ...envConfig } = action.config
-            return envConfig
+            // Token authentication and matlab info is also sent as a response to /get_env_config endpoint.
+            // The authentication and matlab pieces of redux state are updated accordingly for the RECEIVE_ENV_CONFIG action type.
+            // Hence, storing the rest of the envConfig without authentication and matlab info.
+            // eslint-disable-next-line
+            const { authentication, matlab, ...envConfig } = action.config;
+            return envConfig;
         default:
             return state;
     }
 }
 
-export const authInfo = combineReducers({
-    authEnabled,
-    authStatus,
-    authToken
+export function clientId (state = null, action) {
+    switch (action.type) {
+        case SET_CLIENT_ID:
+            return action.clientId;
+        default:
+            return state;
+    }
+}
+
+export const authentication = combineReducers({
+    enabled: authEnabled,
+    status: authStatus,
+    token: authToken
+});
+
+export const matlab = combineReducers({
+    status: matlabStatus,
+    versionOnPath: matlabVersionOnPath,
+    supportedVersions: supportedMatlabVersions,
+    busyStatus: matlabBusyStatus,
 });
 
 export const serverStatus = combineReducers({
     licensingInfo,
-    matlabStatus,
     wsEnv,
-    isFetching,
+    isFetchingServerStatus,
     hasFetched,
     isSubmitting,
     fetchFailCount
 });
 
+export const sessionStatus = combineReducers({
+    isActiveClient,
+    hasClientInitialized,
+    wasEverActive,
+    isConcurrencyEnabled,
+    clientId
+});
 
 export default combineReducers({
     triggerPosition,
     tutorialHidden,
     overlayVisibility,
     serverStatus,
+    sessionStatus,
     loadUrl,
     error,
+    warnings,
     envConfig,
-    authInfo,
+    authentication,
+    matlab,
+    idleTimeoutDuration
 });

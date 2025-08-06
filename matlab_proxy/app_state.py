@@ -1,24 +1,26 @@
-# Copyright 2020-2023 The MathWorks, Inc.
+# Copyright 2020-2025 The MathWorks, Inc.
 
 import asyncio
 import contextlib
 import json
 import logging
 import os
+import sys
 import time
+import uuid
 from collections import deque
 from datetime import datetime, timedelta, timezone
-from typing import Final, Optional
+from typing import Callable, Final, Optional
 
 from matlab_proxy import util
-from matlab_proxy.settings import (
-    get_process_startup_timeout,
-)
 from matlab_proxy.constants import (
+    CHECK_MATLAB_STATUS_INTERVAL_SECONDS,
     CONNECTOR_SECUREPORT_FILENAME,
+    IS_CONCURRENCY_CHECK_ENABLED,
     MATLAB_LOGS_FILE_NAME,
-    VERSION_INFO_FILE_NAME,
+    USER_CODE_OUTPUT_FILE_NAME,
 )
+from matlab_proxy.settings import get_process_startup_timeout
 from matlab_proxy.util import mw, mwi, system, windows
 from matlab_proxy.util.mwi import environment_variables as mwi_env
 from matlab_proxy.util.mwi import token_auth
@@ -28,12 +30,13 @@ from matlab_proxy.util.mwi.exceptions import (
     FatalError,
     LicensingError,
     MatlabError,
+    MatlabInstallError,
     OnlineLicensingError,
-    XvfbError,
     UIVisibleFatalError,
+    XvfbError,
+    WindowManagerError,
     log_error,
 )
-
 
 logger = mwi.logger.get()
 
@@ -56,13 +59,13 @@ class AppState:
         self.settings = settings
         self.processes = {"matlab": None, "xvfb": None}
 
-        # Timeout for processes launched by matlab-proxy
+        # Timeout for processes started by matlab-proxy
         self.PROCESS_TIMEOUT = get_process_startup_timeout()
 
-        # The port on which MATLAB(launched by this matlab-proxy process) starts on.
+        # The port on which MATLAB(started by this matlab-proxy process) starts on.
         self.matlab_port = None
 
-        # The directory in which the instance of MATLAB (launched by this matlab-proxy process) will write logs to.
+        # The directory in which the instance of MATLAB (started by this matlab-proxy process) will write logs to.
         self.mwi_logs_dir = None
 
         # Dictionary of all files used to manage the MATLAB session.
@@ -78,62 +81,167 @@ class AppState:
         }
 
         self.licensing = None
-        self.tasks = {}
+        # MATLAB process related tasks which have the same lifetime as MATLAB
+        self.matlab_tasks = {}
         self.logs = {
             "matlab": deque(maxlen=200),
         }
 
         # Initialize with the error state from the initialization of settings
         self.error = settings["error"]
-
-        if self.error is not None:
-            self.logs["matlab"].clear()
-            return
+        self.warnings = settings["warnings"]
 
         # Keep track of when the Embedded connector starts.
         # Would be initialized appropriately by get_embedded_connector_state() task.
         self.embedded_connector_start_time = None
 
         # Keep track of the state of the Embedded Connector.
-        # If there is some problem with launching the Embedded Connector(say an issue with licensing),
+        # If there is some problem with starting the Embedded Connector(say an issue with licensing),
         # the state of MATLAB process in app_state will continue to be in a 'starting' indefinitely.
         # This variable can be either "up" or "down"
         self.embedded_connector_state = "down"
 
-    def __get_cached_licensing_file(self):
-        """Get the cached licensing file
+        # Specific to concurrent session and is used to track the active client/s that are currently
+        # connected to the backend
+        self.active_client = None
+
+        # Used to detect whether the active client is actively sending out request or is inactive
+        self.active_client_request_detected = False
+
+        # Initialize matlab with 'down' state.
+        # Should only be updated/accessed  via setter/getter methods.
+        self.__matlab_state = "down"
+
+        # Initialize busy state as None as matlab state is initialized as 'down'.
+        self.matlab_busy_state = None
+
+        # Lock to be used before modifying MATLAB state
+        self.matlab_state_updater_lock = util.TrackingLock(purpose="MATLAB state")
+
+        loop = util.get_event_loop()
+
+        # matlab-proxy server related tasks which have the same lifetime as the server
+        self.server_tasks = {
+            "update_matlab_state": loop.create_task(self.__update_matlab_state())
+        }
+
+        self.is_idle_timeout_enabled = (
+            True if self.settings["mwi_idle_timeout"] else False
+        )
+
+        if self.is_idle_timeout_enabled:
+            self.__initial_idle_timeout = self.__remaining_idle_timeout = self.settings[
+                "mwi_idle_timeout"
+            ]
+            # Lock to be used before updating IDLE timer.
+            self.idle_timeout_lock = util.TrackingLock(purpose="MATLAB IDLE timer")
+            self.server_tasks["decrement_idle_timer"] = loop.create_task(
+                self.__decrement_idle_timer()
+            )
+
+    def set_remaining_idle_timeout(self, new_timeout):
+        """Sets the remaining IDLE timeout after the validating checks.
+
+        Args:
+            new_timeout (int): New timeout value
+        """
+        caller = util.get_caller_name()
+        if self.idle_timeout_lock.validate_lock_for_caller(caller):
+            self.__remaining_idle_timeout = new_timeout
+            logger.debug(
+                f"'{util.get_caller_name()}()' function acquired the lock to update IDLE timer"
+            )
+
+        else:
+            # NOTE: This code branch should only ever be hit during development. We exit to enforce proper usage of this function during development time.
+            sys.exit(1)
+
+    def get_remaining_idle_timeout(self):
+        """Returns the remaining IDLE timeout after which matlab-proxy will shutdown
 
         Returns:
-            Path : Path object to cached licensing file
+            int: Remaining IDLE timeout
+        """
+
+        # Lock is not required when reading __idle_timeout_left as the value maybe atmost 1 second old.
+        # Additionally, having a lock for the getter will increase the latency for the /get_status requests coming in.
+        return self.__remaining_idle_timeout
+
+    async def reset_timer(self):
+        """Resets the IDLE timer to its original value after acquiring a lock."""
+        await self.idle_timeout_lock.acquire()
+        self.set_remaining_idle_timeout(self.__initial_idle_timeout)
+        await self.idle_timeout_lock.release()
+
+        logger.debug(
+            f"IDLE timer has been reset to {self.get_remaining_idle_timeout()} seconds"
+        )
+
+    async def __decrement_idle_timer(self):
+        """Decrements the IDLE timer by 1 after acquiring a lock."""
+        this_task = "decrement_idle_timer"
+        logger.debug(f"{this_task}: Starting task...")
+
+        while self.get_remaining_idle_timeout() > 0:
+            # If MATLAB is either starting, stopping or busy, reset the IDLE timer.
+            if (
+                self.get_matlab_state() in ["starting", "stopping"]
+                or self.matlab_busy_state == "busy"
+            ):
+                await self.reset_timer()
+
+            else:
+                new_value = self.get_remaining_idle_timeout() - 1
+                await self.idle_timeout_lock.acquire()
+                self.set_remaining_idle_timeout(new_value)
+                await self.idle_timeout_lock.release()
+
+                logger.debug(
+                    f"{this_task}: IDLE timer decremented to {new_value} seconds"
+                )
+
+            await asyncio.sleep(1)
+
+        logger.info("The IDLE timer for shutdown has run out...")
+        logger.info(f"Shutting down {self.settings['integration_name']}")
+        await self.stop_matlab()
+        loop = util.get_event_loop()
+        loop.stop()
+
+    def __get_cached_config_file(self):
+        """Get the cached config file
+
+        Returns:
+            Path : Path object to cached config file
         """
         return self.settings["matlab_config_file"]
 
-    def __delete_cached_licensing_file(self):
-        """Deletes the cached licensing file"""
+    def __delete_cached_config_file(self):
+        """Deletes the cached config file"""
         try:
-            logger.info(f"Deleting any cached licensing files!")
-            os.remove(self.__get_cached_licensing_file())
+            logger.debug(f"Deleting any cached config files!")
+            os.remove(self.__get_cached_config_file())
         except FileNotFoundError:
             # The file being absent is acceptable.
             pass
 
-    def __reset_and_delete_cached_licensing(self):
-        """Reset licensing variable of the class and removes the cached licensing file."""
-        logger.info(f"Resetting cached licensing information...")
+    def __reset_and_delete_cached_config(self):
+        """Reset licensing variable of the class and removes the cached config file."""
+        logger.debug(f"Resetting cached config information...")
         self.licensing = None
-        self.__delete_cached_licensing_file()
+        self.__delete_cached_config_file()
 
     async def __update_and_persist_licensing(self):
-        """Update entitlements from mhlm servers and persist licensing
+        """Update entitlements from mhlm servers and persist config data
 
         Returns:
             Boolean: True when entitlements were updated and persisted successfully. False otherwise.
         """
         successful_update = await self.update_entitlements()
         if successful_update:
-            self.persist_licensing()
+            self.persist_config_data()
         else:
-            self.__reset_and_delete_cached_licensing()
+            self.__reset_and_delete_cached_config()
         return successful_update
 
     async def init_licensing(self):
@@ -148,47 +256,55 @@ class AppState:
         # Default value
         self.licensing = None
 
-        # If MWI_USE_EXISTING_LICENSE is set in environment, try launching MATLAB directly
+        # If MWI_USE_EXISTING_LICENSE is set in environment, try starting MATLAB directly
         if self.settings["mwi_use_existing_license"]:
             self.licensing = {"type": "existing_license"}
             logger.debug(
                 f"{mwi_env.get_env_name_mwi_use_existing_license()} variable set in environment"
             )
             logger.info(
-                f"!!! Launching MATLAB without providing any additional licensing information. This requires MATLAB to have been activated on the machine from which its being launched !!!"
+                f"!!! Starting MATLAB without providing any additional licensing information. This requires MATLAB to have been activated on the machine from which its being started !!!"
             )
 
-            # Delete old licensing mode info from cache to ensure its wiped out first before persisting new info.
-            self.__delete_cached_licensing_file()
+            # Delete old config info from cache to ensure its wiped out first before persisting new info.
+            self.__delete_cached_config_file()
 
         # NLM Connection String set in environment
         elif self.settings.get("nlm_conn_str", None) is not None:
             nlm_licensing_str = self.settings.get("nlm_conn_str")
             logger.debug(f"Found NLM:[{nlm_licensing_str}] set in environment")
-            logger.debug(f"Using NLM string to connect ... ")
+            logger.info(f"Using NLM:{nlm_licensing_str} to connect...")
             self.licensing = {
                 "type": "nlm",
                 "conn_str": nlm_licensing_str,
             }
 
-            # Delete old licensing mode info from cache to ensure its wiped out first before persisting new info.
-            self.__delete_cached_licensing_file()
+            # Delete old config info from cache to ensure its wiped out first before persisting new info.
+            self.__delete_cached_config_file()
 
         # If NLM connection string is not present or if an existing license is not being used,
         # then look for persistent LNU info
-        elif self.__get_cached_licensing_file().exists():
-            with open(self.__get_cached_licensing_file(), "r") as f:
+        elif self.__get_cached_config_file().exists():
+            with open(self.__get_cached_config_file(), "r") as f:
                 logger.debug("Found cached licensing information...")
                 try:
-                    # Load can throw if the file is empty for some reason.
-                    licensing = json.loads(f.read())
+                    # Load can throw if the file is empty or expected fields in the json object are missing.
+                    cached_data = json.loads(f.read())
+                    licensing = cached_data["licensing"]
+                    matlab = cached_data["matlab"]
+
+                    # If Matlab version could not be determined on startup and 'version' is available in
+                    # cached config, update it.
+                    if not self.settings["matlab_version"]:
+                        self.settings["matlab_version"] = matlab["version"]
+
                     if licensing["type"] == "nlm":
                         # Note: Only NLM settings entered in browser were cached.
                         self.licensing = {
                             "type": "nlm",
                             "conn_str": licensing["conn_str"],
                         }
-                        logger.info("Using cached NLM licensing to launch MATLAB")
+                        logger.debug("Using cached NLM licensing to start MATLAB")
 
                     elif licensing["type"] == "mhlm":
                         self.licensing = {
@@ -216,38 +332,215 @@ class AppState:
                             )
                             if successful_update:
                                 logger.debug(
-                                    "Using cached Online Licensing to launch MATLAB."
+                                    "Using cached Online Licensing to start MATLAB."
                                 )
                         else:
-                            self.__reset_and_delete_cached_licensing()
+                            self.__reset_and_delete_cached_config()
                     elif licensing["type"] == "existing_license":
-                        logger.info("Using cached existing license to launch MATLAB")
+                        logger.debug("Using cached existing license to start MATLAB")
                         self.licensing = licensing
                     else:
                         # Somethings wrong, licensing is neither NLM or MHLM
-                        self.__reset_and_delete_cached_licensing()
+                        self.__reset_and_delete_cached_config()
                 except Exception as e:
-                    self.__reset_and_delete_cached_licensing()
+                    self.__reset_and_delete_cached_config()
 
-    async def get_matlab_state(self):
-        """Determine the state of MATLAB to be down/starting/up.
+    async def __update_matlab_state_based_on_connector_state(self):
+        """Updates MATLAB state based on the Embedded Connector state.
+        This function is meant to be called after the required processes are ready.
+        """
+        if self.embedded_connector_state == "down":
+            await self.matlab_state_updater_lock.acquire()
+            # Even if the embedded connector's status is 'down', we return matlab status as
+            # 'starting' because the MATLAB process itself has been created and matlab-proxy
+            # is waiting for the embedded connector to start serving content.
+
+            if (
+                self.embedded_connector_state == "down"
+            ):  # Double check EC state is down before invoking set_matlab_state().
+                self.set_matlab_state("starting")
+
+            # Update time stamp when MATLAB state is "starting".
+            if not self.embedded_connector_start_time:
+                self.embedded_connector_start_time = time.time()
+
+        # Set matlab_status to "up" since embedded connector is up.
+        else:
+            await self.matlab_state_updater_lock.acquire()
+            # Double check EC state is up before invoking set_matlab_state().
+            if self.embedded_connector_state == "up":
+                self.set_matlab_state("up")
+        await self.matlab_state_updater_lock.release()
+
+    async def __update_matlab_state_using_ping_endpoint(self) -> None:
+        """Updates MATLAB and its busy state based on the response from PING endpoint"""
+        # matlab-proxy sends a request to itself to the endpoint: /messageservice/json/state
+        # which the server redirects to the matlab_view() function to handle (which then sends the request to EC)
+        headers = self._get_token_auth_headers()
+        self.embedded_connector_state = await mwi.embedded_connector.request.get_state(
+            mwi_server_url=self.settings["mwi_server_url"],
+            headers=headers,
+        )
+
+        await self.__update_matlab_state_based_on_connector_state()
+
+        # When using the 'ping' endpoint its not possible to determine the busy status
+        # of MATLAB, so default to busy until the switch is made to use the 'busy' status endpoint in __update_matlab_state task.
+        # If EC is down, set MATLAB busy status to None
+        self.matlab_busy_state = (
+            "busy" if self.embedded_connector_state == "up" else None
+        )
+
+    async def __update_matlab_state_using_busy_status_endpoint(self) -> None:
+        """Updates MATLAB and its busy state based on the response from 'ping' endpoint"""
+        # matlab-proxy sends a request to itself to the endpoint: /messageservice/json/state
+        # which the server redirects to the matlab_view() function to handle (which then sends the request to EC)
+        headers = self._get_token_auth_headers()
+        self.matlab_busy_state = await mwi.embedded_connector.request.get_busy_state(
+            mwi_server_url=self.settings["mwi_server_url"],
+            headers=headers,
+        )
+
+        self.embedded_connector_state = "down" if not self.matlab_busy_state else "up"
+        await self.__update_matlab_state_based_on_connector_state()
+
+    async def __update_matlab_state_based_on_endpoint_to_use(
+        self, matlab_endpoint_to_use: Callable[[], None]
+    ) -> None:
+        """Updates MATLAB state based on:
+         1) If the required processes are ready
+         2) The response from Embedded connector.
+
+        Args:
+            matlab_endpoint_to_use (Callable): Function reference used to updated MATLAB and its busy status.
+        """
+        this_task = "update_matlab_state"
+        # First check before acquiring the lock.
+        if not self._are_required_processes_ready():
+            await self.matlab_state_updater_lock.acquire()
+            if (
+                not self._are_required_processes_ready()
+            ):  # Double check required processes are not ready before invoking set_matlab_state()
+                self.set_matlab_state("down")
+                logger.debug(f"{this_task}: Required processes are not ready yet")
+                await self.matlab_state_updater_lock.release()
+                # Double-checked locking: https://en.wikipedia.org/wiki/Double-checked_locking
+                # If the lock is acquired inside the if condition (without a second check), it would lead to intermediate states
+                # 'starting'(set by start_matlab) -> 'down' (set in the if condition above) -> 'up' (set by this function after matlab starts)
+
+                # If lock is acquired before the if condition, it would lead to large sections of code being under lock which in this case would be
+                # this entire function (and the functions calls within it).
+
+            else:
+                await self.matlab_state_updater_lock.release()
+                await (
+                    self._update_matlab_state_based_on_ready_file_and_connector_status(
+                        matlab_endpoint_to_use
+                    )
+                )
+                logger.debug(
+                    f"{this_task}: Required processes are ready, Embedded Connector status is '{self.get_matlab_state()}'"
+                )
+
+        else:
+            await self._update_matlab_state_based_on_ready_file_and_connector_status(
+                matlab_endpoint_to_use
+            )
+            logger.debug(
+                f"{this_task}: Required processes are ready, Embedded Connector status is '{self.get_matlab_state()}'"
+            )
+
+        await asyncio.sleep(CHECK_MATLAB_STATUS_INTERVAL_SECONDS)
+
+    async def __update_matlab_state(self) -> None:
+        """An indefinitely running asyncio task which determines the status of MATLAB to be down/starting/up."""
+        this_task = "update_matlab_state"
+        logger.debug(f"{this_task}: Starting task...")
+
+        # Start with using the ping endpoint to update matlab and its 'busy' state.
+        function_to_call = self.__update_matlab_state_using_ping_endpoint
+        logger.debug("Using the 'ping' endpoint to determine MATLAB state")
+
+        while True:
+            await self.__update_matlab_state_based_on_endpoint_to_use(function_to_call)
+
+            if self.get_matlab_state() == "up":
+                logger.debug(
+                    "MATLAB is up. Checking if 'busy' status endpoint is available"
+                )
+
+                # MATLAB is up, now switch to 'busy' status endpoint to check if 'busy' status updates
+                # to a valid value.
+                function_to_call = self.__update_matlab_state_using_busy_status_endpoint
+                await self.__update_matlab_state_based_on_endpoint_to_use(
+                    function_to_call
+                )
+
+                # If MATLAB 'busy' status is None even after MATLAB state is 'up', implies that the
+                # endpoint is not available. So, fall back to using ping endpoint.
+                if not self.matlab_busy_state:
+                    function_to_call = self.__update_matlab_state_using_ping_endpoint
+                    logger.debug(
+                        "'busy' status endpoint returned an invalid response, falling back to using 'ping' endpoint to determine MATLAB state"
+                    )
+                    warning = f"{mwi_env.get_env_name_shutdown_on_idle_timeout()} environment variable is supported only for MATLAB versions R2021a or later"
+                    logger.warn(warning)
+                    self.warnings.append(warning)
+
+                else:
+                    logger.debug(
+                        "'busy' status endpoint returned a valid response, will continue using it for determining MATLAB and its 'busy' state"
+                    )
+
+                break
+
+        # Continue to use the same endpoint determined above.
+        while True:
+            await self.__update_matlab_state_based_on_endpoint_to_use(function_to_call)
+
+    def set_matlab_state(self, new_state) -> None:
+        """Updates MATLAB state. Will exit the matlab-proxy process if a lock is not acquired
+        before calling this function.
+
+        Args:
+            new_state (str): The new state of MATLAB
+        """
+        caller = util.get_caller_name()
+        if self.matlab_state_updater_lock.validate_lock_for_caller(caller):
+            self.__matlab_state = new_state
+            logger.debug(f"'{caller}()' function updated MATLAB state to '{new_state}'")
+
+        else:
+            # NOTE: This code branch should only ever be hit during development. We exit to enforce proper usage of this function during development time.
+            sys.exit(1)
+
+    def get_matlab_state(self) -> str:
+        """Returns the state of MATLAB to be down/starting/up.
 
         Returns:
             String: Status of MATLAB. Returns either up, down or starting.
         """
-        # MATLAB can either be "up", "starting" or "down" state depending upon Xvfb, MATLAB and the Embedded Connector
-        # Return matlab status as "down" if the processes validation fails
-        if not self._are_required_processes_ready():
-            return "down"
+        # Lock is not required when reading __matlab_state as the value maybe atmost 1 second old.
+        # Additionally, having a lock for the getter will increase the latency for the /get_status requests coming in.
+        return self.__matlab_state
 
-        # If execution reaches here, it implies that:
-        # 1) MATLAB process has started.
-        # 2) Embedded connector has not started yet.
-        return await self._get_matlab_connector_status()
+    async def stop_server_tasks(self):
+        """Stops all matlab-proxy server tasks"""
+        await util.cancel_tasks(self.server_tasks)
 
     def _are_required_processes_ready(
         self, matlab_process=None, xvfb_process=None
     ) -> bool:
+        """Checks if the required platform specific processes are ready.
+
+        Args:
+            matlab_process (asyncio.subprocess.Process | psutil.Process, optional): MATLAB process. Defaults to None.
+            xvfb_process (asyncio.subprocess.Process, optional): Xvfb Process. Defaults to None.
+
+        Returns:
+            bool: Whether the required processes are ready or not.
+        """
+
         # Update the processes to what is tracked in the instance's processes if a None is received
         if matlab_process is None:
             matlab_process = self.processes["matlab"]
@@ -255,7 +548,10 @@ class AppState:
             xvfb_process = self.processes["xvfb"]
 
         if system.is_linux():
-            if xvfb_process is None or xvfb_process.returncode is not None:
+            # If Xvfb is on system PATH, check if it up and running.
+            if self.settings.get("is_xvfb_available", None) and (
+                xvfb_process is None or xvfb_process.returncode is not None
+            ):
                 logger.debug(
                     "Xvfb has not started"
                     if xvfb_process is None
@@ -299,68 +595,70 @@ class AppState:
             [Dict | None]: Returns token authentication headers if any.
         """
         return (
-            {self.settings["mwi_auth_token_name"]: self.settings["mwi_auth_token_hash"]}
+            {
+                self.settings["mwi_auth_token_name_for_http"]: self.settings[
+                    "mwi_auth_token_hash"
+                ]
+            }
             if self.settings["mwi_is_token_auth_enabled"]
             else None
         )
 
-    async def _get_matlab_connector_status(self) -> str:
-        """Returns the status of MATLABs Embedded Connector.
+    async def _update_matlab_state_based_on_ready_file_and_connector_status(
+        self, func_to_update_matlab_state: Callable[[], None]
+    ) -> None:
+        """Updates MATLAB and its 'busy' state based on Embedded Connector status.
 
-        Returns:
-            str: Returns any of "up", "down" or "starting" indicating the status of Embedded Connector.
+        Args:
+            func_to_update_matlab_state(callable): Function which updates MATLAB and its 'busy' state.
         """
-        if not self.matlab_session_files["matlab_ready_file"].exists():
-            return "starting"
+        # NOTE: Double-checked locking should be applied where set_matlab_state() is called within this function,
+        # as it is invoked frequently (from the __update_matlab_state or anywhere set_matlab_state() is invoked frequently)
+        matlab_ready_file = self.matlab_session_files.get("matlab_ready_file")
 
-        # Proceed to query the Embedded Connector about its state.
-        # matlab-proxy sends a request to itself to the endpoint: /messageservice/json/state
-        # which the server redirects to the matlab_view() function to handle (which then sends the request to EC)
-        # As the matlab_view is now a protected endpoint, we need to pass token information through headers.
+        if not matlab_ready_file:
+            await self.matlab_state_updater_lock.acquire()
 
-        # Include token information into the headers if authentication is enabled.
-        headers = self._get_token_auth_headers()
+            if (
+                not matlab_ready_file
+            ):  # Double check that matlab_ready_file is truthy before invoking set_matlab_state()
+                self.set_matlab_state("down")
+                await self.matlab_state_updater_lock.release()
+                return
 
-        embedded_connector_status = await mwi.embedded_connector.request.get_state(
-            mwi_server_url=self.settings["mwi_server_url"],
-            headers=headers,
-        )
+            else:
+                await self.matlab_state_updater_lock.release()
+                return
 
-        # Embedded Connector can be in either "up" or "down" state
-        assert embedded_connector_status in [
-            "up",
-            "down",
-        ], "Invalid embedded connector state returned"
+        # If the matlab_ready_file path is constructed and is not yet created by the embedded connector.
+        if matlab_ready_file and not matlab_ready_file.exists():
+            await self.matlab_state_updater_lock.acquire()
+            if (
+                matlab_ready_file and not matlab_ready_file.exists()
+            ):  # Double check that matlab_ready_file is truthy and exists before invoking set_matlab_state()
+                self.set_matlab_state("starting")
+                await self.matlab_state_updater_lock.release()
+                return
 
-        self.embedded_connector_state = embedded_connector_status
+            else:
+                await self.matlab_state_updater_lock.release()
+                return
 
-        if self.embedded_connector_state == "down":
-            # Even if the embedded connector's status is 'down', we return matlab status as
-            # 'starting' because the MATLAB process itself has been created and matlab-proxy
-            # is waiting for the embedded connector to start serving content.
-            matlab_status = "starting"
+        # Proceed to query the Embedded Connector about its state and update MATLAB and its 'busy' state.
 
-            # Update time stamp when MATLAB state is "starting".
-            if not self.embedded_connector_start_time:
-                self.embedded_connector_start_time = time.time()
-
-        # Set matlab_status to "up" since embedded connector is up.
-        else:
-            matlab_status = "up"
-
-        return matlab_status
+        await func_to_update_matlab_state()
 
     async def set_licensing_nlm(self, conn_str):
         """Set the licensing type to NLM and the connection string."""
 
         # TODO Validate connection string
         self.licensing = {"type": "nlm", "conn_str": conn_str}
-        self.persist_licensing()
+        self.persist_config_data()
 
     def set_licensing_existing_license(self):
         """Set the licensing type to NLM and the connection string."""
         self.licensing = {"type": "existing_license"}
-        self.persist_licensing()
+        self.persist_config_data()
 
     async def set_licensing_mhlm(
         self,
@@ -461,17 +759,6 @@ class AppState:
                 "MHLM licensing must be configured to update entitlements!"
             )
 
-        # TODO: Updating entitlements requires the matlab version. If it
-        # could not be determined at server startup, take input from the user
-        # for the MATLAB version they intend to start and update settings.
-
-        # As MHLM licensing requires matlab version to update entitlements, if it couldn't be determined
-        # for now show an error to the user to set MWI_CUSTOM_MATLAB_ROOT env var.
-        if self.settings["matlab_version"] is None:
-            raise UIVisibleFatalError(
-                f"Could not find {VERSION_INFO_FILE_NAME} file at MATLAB root. Set {mwi_env.get_env_name_custom_matlab_root()} to a valid MATLAB root path"
-            )
-
         try:
             # Fetch an access token
             access_token_data = await mw.fetch_access_token(
@@ -532,19 +819,23 @@ class AppState:
     async def update_user_selected_entitlement_info(self, entitlement_id):
         self.licensing["entitlement_id"] = entitlement_id
         logger.debug(f"Successfully set {entitlement_id} as the entitlement_id")
-        self.persist_licensing()
+        self.persist_config_data()
 
-    def persist_licensing(self):
-        """Saves licensing information to file"""
+    def persist_config_data(self):
+        """Saves config information to file"""
         if self.licensing is None:
-            self.__delete_cached_licensing_file()
+            self.__delete_cached_config_file()
 
         elif self.licensing["type"] in ["mhlm", "nlm", "existing_license"]:
             logger.debug("Saving licensing information...")
-            cached_licensing_file = self.__get_cached_licensing_file()
-            cached_licensing_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(cached_licensing_file, "w") as f:
-                f.write(json.dumps(self.licensing))
+            cached_config_file = self.__get_cached_config_file()
+            cached_config_file.parent.mkdir(parents=True, exist_ok=True)
+            config = {
+                "licensing": self.licensing,
+                "matlab": {"version": self.settings["matlab_version"]},
+            }
+            with open(cached_config_file, "w") as f:
+                f.write(json.dumps(config))
 
     def create_logs_dir_for_MATLAB(self):
         """Creates the root folder where MATLAB writes the ready file and updates attibutes on self."""
@@ -575,6 +866,24 @@ class AppState:
             self.matlab_session_files["matlab_ready_file"] = matlab_ready_file
 
             logger.debug(f"matlab_session_files:{self.matlab_session_files}")
+
+            # check if the user has provided any code or not
+            if self.settings.get("has_custom_code_to_execute"):
+                # Keep a reference to the user code output file in the matlab_session_files for cleanup
+                user_code_output_file = mwi_logs_dir / USER_CODE_OUTPUT_FILE_NAME
+                self.matlab_session_files["startup_code_output_file"] = (
+                    user_code_output_file
+                )
+                logger.info(
+                    util.prettify(
+                        boundary_filler="*",
+                        text_arr=[
+                            f"When MATLAB starts, you can see the output for your startup code at:",
+                            f"{self.matlab_session_files.get('startup_code_output_file', ' ')}",
+                        ],
+                    )
+                )
+
             return
 
     def create_server_info_file(self):
@@ -598,7 +907,7 @@ class AppState:
             util.prettify(
                 boundary_filler="=",
                 text_arr=[
-                    f"MATLAB can be accessed at:",
+                    f"Access MATLAB at:",
                     self.settings["mwi_server_url"].replace("0.0.0.0", "localhost")
                     + mwi_auth_token_str,
                 ],
@@ -610,14 +919,14 @@ class AppState:
         try:
             for session_file in self.mwi_server_session_files.items():
                 if session_file[1] is not None:
-                    logger.info(f"Deleting:{session_file[1]}")
+                    logger.debug(f"Deleting:{session_file[1]}")
                     session_file[1].unlink()
         except FileNotFoundError:
             # Files may not exist if cleanup is called before they are created
             pass
 
     async def __setup_env_for_matlab(self) -> dict:
-        """Configure the environment variables required for launching MATLAB by matlab-proxy.
+        """Configure the environment variables required for starting MATLAB by matlab-proxy.
 
         Returns:
             [dict]: Containing keys as the Env variable names and values are its corresponding values.
@@ -637,12 +946,6 @@ class AppState:
                 matlab_env["MLM_WEB_LICENSE"] = "true"
                 matlab_env["MLM_WEB_USER_CRED"] = access_token_data["token"]
                 matlab_env["MLM_WEB_ID"] = self.licensing["entitlement_id"]
-                matlab_env["MW_LOGIN_EMAIL_ADDRESS"] = self.licensing["email_addr"]
-                matlab_env["MW_LOGIN_FIRST_NAME"] = self.licensing["first_name"]
-                matlab_env["MW_LOGIN_LAST_NAME"] = self.licensing["last_name"]
-                matlab_env["MW_LOGIN_DISPLAY_NAME"] = self.licensing["display_name"]
-                matlab_env["MW_LOGIN_USER_ID"] = self.licensing["user_id"]
-                matlab_env["MW_LOGIN_PROFILE_ID"] = self.licensing["profile_id"]
 
                 matlab_env["MHLM_CONTEXT"] = (
                     "MATLAB_JAVASCRIPT_DESKTOP"
@@ -671,13 +974,32 @@ class AppState:
         # DDUX info for MATLAB
         matlab_env["MW_CONTEXT_TAGS"] = self.settings.get("mw_context_tags")
 
+        # Update DISPLAY env variable for MATLAB only if it was supplied by Xvfb.
         if system.is_linux():
-            # Adding DISPLAY key which is only available after starting Xvfb successfully.
-            matlab_env["DISPLAY"] = self.settings["matlab_display"]
+            if self.settings.get("matlab_display", None):
+                matlab_env["DISPLAY"] = self.settings["matlab_display"]
+                logger.debug(
+                    f"Using the display number supplied by Xvfb process'{matlab_env['DISPLAY']}' for starting MATLAB"
+                )
+            else:
+                if "DISPLAY" in matlab_env:
+                    logger.debug(
+                        f"Using the existing DISPLAY environment variable with value:{matlab_env['DISPLAY']} for starting MATLAB"
+                    )
+                else:
+                    logger.debug(
+                        "No DISPLAY environment variable found. Starting MATLAB without it."
+                    )
 
         # The matlab ready file is written into this location(self.mwi_logs_dir) by MATLAB
         # The mwi_logs_dir is where MATLAB will write any subsequent logs
         matlab_env["MATLAB_LOG_DIR"] = str(self.mwi_logs_dir)
+
+        # Set MW_CONNECTOR_CONTEXT_ROOT
+        matlab_env["MW_CONNECTOR_CONTEXT_ROOT"] = self.settings.get("base_url", "/")
+        logger.info(
+            f"MW_CONNECTOR_CONTEXT_ROOT is set to: {matlab_env['MW_CONNECTOR_CONTEXT_ROOT']}"
+        )
 
         # Env setup related to logging
         # Very verbose logging in debug mode
@@ -702,9 +1024,9 @@ class AppState:
             logger.info(
                 f"Writing MATLAB process logs to: {matlab_env['MW_DIAGNOSTIC_DEST']}"
             )
-            matlab_env[
-                "MW_DIAGNOSTIC_SPEC"
-            ] = "connector::http::server=all;connector::lifecycle=all"
+            matlab_env["MW_DIAGNOSTIC_SPEC"] = (
+                "connector::http::server=all;connector::lifecycle=all"
+            )
 
         # TODO Introduce a warmup flag to enable this?
         # matlab_env["CONNECTOR_CONFIGURABLE_WARMUP_TASKS"] = "warmup_hgweb"
@@ -725,6 +1047,31 @@ class AppState:
         return {
             key: value for key, value in env_vars.items() if not key.startswith(prefix)
         }
+
+    async def __start_window_manager(self, display=None):
+        if display is None:
+            logger.info("Not starting fluxbox as display is not provided")
+            return None
+
+        wm_env = os.environ.copy()
+        wm_env["DISPLAY"] = display
+        wm_cmd = ["fluxbox", "-screen", "0", "-log", "/dev/null"]
+
+        try:
+            logger.info(f"Starting window manager with DISPLAY={wm_env['DISPLAY']}")
+            return await asyncio.create_subprocess_exec(
+                *wm_cmd, close_fds=False, env=wm_env, stderr=asyncio.subprocess.PIPE
+            )
+
+        except Exception as err:
+            self.error = WindowManagerError(
+                "Unable to start the Fluxbox Window Manager due to the following error: "
+                + err
+            )
+            # Log the error on the console.
+            log_error(logger, self.error)
+
+        return None
 
     async def __start_xvfb_process(self):
         """Private method to start the xvfb process. Will set appropriate
@@ -747,15 +1094,15 @@ class AppState:
             )
             self.settings["matlab_display"] = ":" + str(display_port)
 
-            logger.debug(f"Started Xvfb with PID={xvfb.pid} on DISPLAY={display_port}")
+            logger.info(f"Started Xvfb with PID={xvfb.pid} on DISPLAY={display_port}")
 
             return xvfb
 
-        # If something went wrong ie. exception is raised in launching Xvfb process, capture error for logging
+        # If something went wrong ie. exception is raised in starting Xvfb process, capture error for logging
         # and for showing the error on the frontend.
 
         # FileNotFoundError: is thrown if Xvfb is not found on System Path.
-        # XvfbError: is thrown if something went wrong when launching Xvfb process.
+        # XvfbError: is thrown if something went wrong when starting Xvfb process.
         except (FileNotFoundError, XvfbError) as err:
             self.error = XvfbError(
                 """Unable to start the Xvfb process. Ensure Xvfb is installed and is available on the System Path. See https://github.com/mathworks/matlab-proxy#requirements for information on Xvfb"""
@@ -778,6 +1125,12 @@ class AppState:
         Returns:
             (asyncio.subprocess.Process | psutil.Process): If process creation is successful, else return None.
         """
+        # If there's no matlab_cmd available, it means that MATLAB is not available on system PATH.
+        if not self.settings["matlab_cmd"]:
+            raise MatlabInstallError(
+                "Unable to find MATLAB on the system PATH. Add MATLAB to the system PATH, and restart matlab-proxy."
+            )
+
         if system.is_posix():
             import pty
 
@@ -801,6 +1154,10 @@ class AppState:
                 )
 
                 return matlab
+
+            except UIVisibleFatalError as e:
+                self.error = e
+                log_error(logger, e)
 
             except Exception as err:
                 self.error = err
@@ -845,7 +1202,7 @@ class AppState:
                 else:
                     time_diff = time.time() - self.embedded_connector_start_time
                     if time_diff > self.PROCESS_TIMEOUT:
-                        # Since max allowed startup time has elapsed, it means that MATLAB is in a stuck state and cannot be launched.
+                        # Since max allowed startup time has elapsed, it means that MATLAB is stuck and is unable to start.
                         # Set the error and stop matlab.
                         user_visible_error = "Unable to start MATLAB.\nTry again by clicking Start MATLAB."
 
@@ -854,32 +1211,27 @@ class AppState:
                             # So, raise a generic error wherever appropriate
                             generic_error = f"MATLAB did not start in {int(self.PROCESS_TIMEOUT)} seconds. Use Windows Remote Desktop to check for any errors."
                             logger.error(f":{this_task}: {generic_error}")
-                            if len(self.logs["matlab"]) == 0:
-                                await self.__force_stop_matlab(
-                                    user_visible_error, this_task
-                                )
-                                # Breaking out of the loop to end this task as matlab-proxy was unable to launch MATLAB successfully
-                                # even after waiting for self.PROCESS_TIMEOUT
-                                break
-                            else:
-                                # Do not stop the MATLAB process or break from the loop (the error type is unknown)
-                                self.error = MatlabError(generic_error)
-                                await asyncio.sleep(5)
-                                continue
+
+                            # Stopping the MATLAB process would remove the UI window displaying the error too.
+                            # Do not stop the MATLAB or break from the loop (as the error is still unknown)
+                            self.error = MatlabError(generic_error)
+                            await asyncio.sleep(5)
+                            continue
 
                         else:
-                            # If there are no logs after the max startup time has elapsed, it means that MATLAB is in a stuck state and cannot be launched.
+                            # If there are no logs after the max startup time has elapsed, it means that MATLAB is stuck and is unable to start.
                             # Set the error and stop matlab.
                             logger.error(
                                 f":{this_task}: MATLAB did not start in {int(self.PROCESS_TIMEOUT)} seconds!"
                             )
-                            if len(self.logs["matlab"]) == 0:
-                                await self.__force_stop_matlab(
-                                    user_visible_error, this_task
-                                )
-                                # Breaking out of the loop to end this task as matlab-proxy was unable to launch MATLAB successfully
-                                # even after waiting for self.PROCESS_TIMEOUT
-                                break
+                            # MATLAB can be stopped on posix systems because the stderr pipe of the MATLAB process is
+                            # read (by __matlab_stderr_reader_posix() task) and is logged by matlab-proxy appropriately.
+                            await self.__force_stop_matlab(
+                                user_visible_error, this_task
+                            )
+                            # Breaking out of the loop to end this task as matlab-proxy was unable to start MATLAB successfully
+                            # even after waiting for self.PROCESS_TIMEOUT
+                            break
 
                     else:
                         logger.debug(
@@ -915,7 +1267,7 @@ class AppState:
             delay (int): time delay in seconds before retrying the file read operation
         """
         logger.debug(
-            f'updating matlab_port information from {self.matlab_session_files["matlab_ready_file"]}'
+            f"updating matlab_port information from {self.matlab_session_files['matlab_ready_file']}"
         )
         try:
             await asyncio.wait_for(
@@ -928,7 +1280,7 @@ class AppState:
             )
             await self.stop_matlab(force_quit=True)
             self.error = MatlabError(
-                "Unable to start MATLAB because of a timeout. Try again by clicking Start MATLAB."
+                "MATLAB startup has timed out. Click Start MATLAB to try again."
             )
 
     async def __read_matlab_ready_file(self, delay):
@@ -948,16 +1300,21 @@ class AppState:
         Args:
             restart_matlab (bool, optional): Whether to restart MATLAB. Defaults to False.
         """
-
         # Ensure that previous processes are stopped
         await self.stop_matlab()
 
+        # Acquire lock before setting MATLAB state to 'starting'.
+
+        # The lock is held for a substantial part of this function's execution to prevent asynchronous updates
+        # to MATLAB state by other functions/tasks until the lock is released, ensuring consistency. It's released early only in case of exceptions.
+        await self.matlab_state_updater_lock.acquire()
+        self.set_matlab_state("starting")
         # Clear MATLAB errors and logging
         self.error = None
         self.logs["matlab"].clear()
 
-        # Start Xvfb process if in a posix system
-        if system.is_linux():
+        # Start Xvfb process on linux if possible
+        if system.is_linux() and self.settings["is_xvfb_available"]:
             xvfb = await self.__start_xvfb_process()
 
             # xvfb variable would be None if creation of the process failed.
@@ -967,7 +1324,13 @@ class AppState:
 
             self.processes["xvfb"] = xvfb
 
+        # Start Window Manager on linux if possible
+        if system.is_linux() and self.settings["is_windowmanager_available"]:
+            display = self.settings.get("matlab_display", None)
+            await self.__start_window_manager(display)
+
         try:
+
             # Prepare ready file for the MATLAB process.
             self.create_logs_dir_for_MATLAB()
 
@@ -981,6 +1344,8 @@ class AppState:
         # If there's something wrong with setting up files or env setup for starting matlab, capture the error for logging
         # and to pass to the front-end. Halt MATLAB process startup by returning early
         except Exception as err:
+            # Release lock if an exception occurs as we are returning early and since it will be required by stop_matlab
+            await self.matlab_state_updater_lock.release()
             self.error = err
             log_error(logger, err)
             # stop_matlab() does the teardown work by removing any residual files and processes created till now
@@ -991,7 +1356,17 @@ class AppState:
         # Start MATLAB Process
         logger.debug("Starting MATLAB")
 
-        matlab = await self.__start_matlab_process(matlab_env)
+        try:
+            matlab = await self.__start_matlab_process(matlab_env)
+
+        # If there's an error with starting MATLAB, set the error to the state and matlab to None
+        except MatlabInstallError as err:
+            log_error(logger, err)
+            self.error = err
+            matlab = None
+
+        # Release the lock after MATLAB process has started.
+        await self.matlab_state_updater_lock.release()
 
         # matlab variable would be None if creation of the process failed.
         if matlab is None:
@@ -1005,75 +1380,15 @@ class AppState:
 
         loop = util.get_event_loop()
         # Start all tasks relevant to MATLAB process
-        self.tasks["matlab_stderr_reader_posix"] = loop.create_task(
+        self.matlab_tasks["matlab_stderr_reader_posix"] = loop.create_task(
             self.__matlab_stderr_reader_posix()
         )
-        self.tasks["track_embedded_connector_state"] = loop.create_task(
+        self.matlab_tasks["track_embedded_connector_state"] = loop.create_task(
             self.__track_embedded_connector_state()
         )
-        self.tasks["update_matlab_port"] = loop.create_task(
+        self.matlab_tasks["update_matlab_port"] = loop.create_task(
             self.__update_matlab_port(self.MATLAB_PORT_CHECK_DELAY_IN_SECONDS)
         )
-
-    """
-    async def __send_terminate_integration_request(self):
-        Private method to programmatically shutdown the matlab-proxy server.
-        Sends a HTTP request to the server to shut itself down gracefully.
-
-        # Clean up session files which determine various states of the server &/ MATLAB.
-        # Do this first as stopping MATLAB/Xvfb take longer and may fail
-        try:
-            for session_file in self.matlab_session_files.items():
-                if session_file[1] is not None:
-                    logger.info(f"Deleting:{session_file[1]}")
-                    session_file[1].unlink()
-        except FileNotFoundError:
-            # Files won't exist when stop_matlab is called for the first time.
-            pass
-
-        # Cancel the asyncio task which reads MATLAB process' stderr
-        if "matlab_stderr_reader" in self.tasks:
-            try:
-                self.tasks["matlab_stderr_reader"].cancel()
-            except asyncio.CancelledError:
-                pass
-        If the request fails, the server process exits with error code 1.
-
-        url = self.settings["mwi_server_url"] + "/terminate_integration"
-
-        try:
-            async with aiohttp.ClientSession() as client_session:
-                async with client_session.delete(url) as res:
-                    pass
-
-        matlab = self.processes["matlab"]
-        if matlab is not None and matlab.returncode is None:
-            try:
-                logger.info(
-                    f"Calling terminate on MATLAB process with PID: {matlab.pid}!"
-                )
-                matlab.terminate()
-                await matlab.wait()
-            except:
-                logger.info(
-                    f"Exception occurred during termination of MATLAB process with PID: {matlab.pid}!"
-                )
-                pass
-
-        xvfb = self.processes["xvfb"]
-        logger.debug(f"Attempting XVFB Termination Xvfb)")
-        if xvfb is not None and xvfb.returncode is None:
-            logger.info(f"Terminating Xvfb (PID={xvfb.pid})")
-            xvfb.terminate()
-            await xvfb.wait()
-
-        except aiohttp.client_exceptions.ServerDisconnectedError:
-            logger.error("Server has already disconnected...")
-
-        # If even the terminate integration request fails, exit with error code 1.
-        except Exception as err:
-            logger.error("Failed to send terminate integration request:\n", err)
-            sys.exit(1)"""
 
     async def __send_stop_request_to_matlab(self):
         """Private method to send a HTTP request to MATLAB to shutdown gracefully
@@ -1107,20 +1422,28 @@ class AppState:
     async def stop_matlab(self, force_quit=False):
         """Terminate MATLAB."""
 
-        # Fetch matlab state before deleting its session files because
-        # get_matlab_state() checks for the existence of these files in
-        # determining matlab state.
-        matlab_state = await self.get_matlab_state()
+        matlab_state = self.get_matlab_state()
 
+        # Acquire lock before setting MATLAB state to 'stopping'.
+
+        # The lock is held for a substantial part of this function's execution to prevent asynchronous updates
+        # to MATLAB state by other functions/tasks until the lock is released, ensuring consistency. It's released early only in case of exceptions.
+        await self.matlab_state_updater_lock.acquire()
+
+        self.set_matlab_state("stopping")
         # Clean up session files which determine various states of the server &/ MATLAB.
         # Do this first as stopping MATLAB/Xvfb takes longer and may fail
 
         # Files won't exist when stop_matlab is called for the first time.
-        for _, session_file in self.matlab_session_files.items():
-            if session_file is not None:
+        for (
+            session_file_name,
+            session_file_path,
+        ) in self.matlab_session_files.items():
+            if session_file_path is not None:
+                self.matlab_session_files[session_file_name] = None
                 with contextlib.suppress(FileNotFoundError):
-                    logger.info(f"Deleting:{session_file}")
-                    session_file.unlink()
+                    logger.debug(f"Deleting:{session_file_path}")
+                    session_file_path.unlink()
 
         # In posix systems, variable matlab is an instance of asyncio.subprocess.Process()
         # In windows systems, variable matlab is an instance of psutil.Process()
@@ -1129,6 +1452,10 @@ class AppState:
         waiters = []
         if matlab is not None:
             if system.is_posix() and matlab.returncode is None:
+                # Close the stderr stream to prevent indefinite hanging on it due to a child
+                # process inheriting it, fixes https://github.com/mathworks/matlab-proxy/issues/44
+                self._close_matlab_stderr_stream(matlab)
+
                 # Sending an exit request to the embedded connector takes time.
                 # When MATLAB is in a "starting" state (implies the Embedded connector is not up)
                 # OR
@@ -1146,6 +1473,7 @@ class AppState:
 
                         # Wait for matlab to shutdown gracefully
                         await matlab.wait()
+
                         assert (
                             matlab.returncode == 0
                         ), "Failed to gracefully shutdown MATLAB via the embedded connector"
@@ -1160,9 +1488,10 @@ class AppState:
                         try:
                             matlab.terminate()
                             await matlab.wait()
-                        except:
-                            pass
-
+                        except Exception as ex:
+                            logger.debug(
+                                "Received an exception while terminating matlab: %s", ex
+                            )
             else:
                 # In a windows system
                 if system.is_windows() and matlab.is_running():
@@ -1205,7 +1534,7 @@ class AppState:
         if system.is_posix():
             xvfb = self.processes["xvfb"]
             if xvfb is not None and xvfb.returncode is None:
-                logger.info(f"Terminating Xvfb (PID={xvfb.pid})")
+                logger.debug(f"Terminating Xvfb (PID={xvfb.pid})")
                 xvfb.terminate()
                 waiters.append(xvfb.wait())
 
@@ -1214,18 +1543,14 @@ class AppState:
             for waiter in waiters:
                 await waiter
 
-        # Canceling all the async tasks in the list
-        for name, task in list(self.tasks.items()):
-            if task:
-                try:
-                    task.cancel()
-                    await task
-                    logger.debug(f"{name} task stopped successfully")
-                except asyncio.CancelledError:
-                    pass
+        # Release lock for the __update_matlab_state task to determine MATLAB state.
+        await self.matlab_state_updater_lock.release()
 
-        # After stopping all the tasks, set self.tasks to empty dict
-        self.tasks = {}
+        # Canceling all MATLAB process related tasks
+        await util.cancel_tasks(self.matlab_tasks)
+
+        # After stopping all the tasks, set self.matlab_tasks to empty dict
+        self.matlab_tasks = {}
 
         # Clear logs if MATLAB stopped intentionally
         logger.debug("Clearing logs!")
@@ -1235,6 +1560,23 @@ class AppState:
         # Update matlab_port information in the event of intentionally stopping MATLAB
         self.matlab_port = None
         logger.debug("Completed Shutdown!!!")
+
+    def _close_matlab_stderr_stream(self, matlab):
+        """
+        This method attempts to close the stderr stream associated with the MATLAB process
+        to prevent potential resource leaks. It logs a debug message if the stream is
+        successfully closed.
+
+        Args:
+            matlab: The MATLAB process reference.
+        """
+        stderr_stream = matlab._transport.get_pipe_transport(sys.stderr.fileno())
+        if stderr_stream:
+            logger.debug(
+                "Closing matlab process stderr stream: %s",
+                stderr_stream,
+            )
+            stderr_stream.close()
 
     async def handle_matlab_output(self):
         """Parse MATLAB output from stdout and raise errors if any."""
@@ -1268,3 +1610,71 @@ class AppState:
             if err is not None:
                 self.error = err
                 log_error(logger, err)
+
+    def get_session_status(self, is_desktop, client_id, transfer_session):
+        """
+        Determines the session status for a client, potentially generating a new client ID.
+
+        This function is responsible for managing and tracking the session status of a client.
+        It can generate a new client ID if one is not provided and the conditions are met.
+        It also manages the active client status within the session, especially in scenarios
+        involving desktop clients and when concurrency checks are enabled.
+
+        Args:
+            is_desktop (bool): A flag indicating whether the client is a desktop client.
+            client_id (str or None): The client ID. If None, a new client ID may be generated.
+            transfer_session (bool): Indicates whether the session should be transferred to this client.
+
+        Returns:
+            tuple:
+                - A 2-tuple containing the generated client ID (or None if not generated) and
+                a boolean indicating whether the client is considered the active client.
+                - If concurrency checks are not enabled or the client is not a desktop client, it returns None for both
+                the generated client ID and the active client status.
+        """
+        if IS_CONCURRENCY_CHECK_ENABLED and is_desktop:
+            generated_client_id = None
+            if not client_id:
+                generated_client_id = str(uuid.uuid4())
+                client_id = generated_client_id
+
+            if not self.active_client or transfer_session:
+                self.active_client = client_id
+
+                if not self.server_tasks.get("detect_client_status", None):
+                    # Create the loop to detect the active status of the client
+                    loop = util.get_event_loop()
+                    self.server_tasks["detect_client_status"] = loop.create_task(
+                        self.detect_active_client_status()
+                    )
+
+            if self.active_client == client_id:
+                is_active_client = True
+                self.active_client_request_detected = True
+            else:
+                is_active_client = False
+            return generated_client_id, is_active_client
+        return None, None
+
+    async def detect_active_client_status(self, sleep_time=1, max_inactive_count=10):
+        """Detects whether the client is online or not by continuously checking if the active client is making requests
+
+        Args:
+            sleep_time (int): The time in seconds for which the process waits before checking for the next get_status request from the active client.
+            max_inactive_count (int): The maximum number of times the check for the request from the active_client fails before reseting the active client id.
+        """
+        inactive_count = 0
+        while self.active_client:
+            # Check if the get_status request from the active client is received or not
+            await asyncio.sleep(sleep_time)
+            if self.active_client_request_detected:
+                self.active_client_request_detected = False
+                inactive_count = 0
+            else:
+                inactive_count = inactive_count + 1
+            if inactive_count > max_inactive_count:
+                # If no request is received from the active_client for more than 10 seconds then clear the active client id
+                inactive_count = 0
+                self.active_client = None
+
+        await util.cancel_tasks([self.server_tasks.get("detect_client_status")])

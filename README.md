@@ -1,15 +1,13 @@
 # MATLAB Proxy
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/mathworks/matlab-proxy/run-tests.yml?branch=main&logo=github)](https://github.com/mathworks/matlab-proxy/actions) &nbsp; [![PyPI badge](https://img.shields.io/pypi/v/matlab-proxy.svg?logo=pypi)](https://pypi.python.org/pypi/matlab-proxy) &nbsp;  [![codecov](https://codecov.io/gh/mathworks/matlab-proxy/branch/main/graph/badge.svg?token=ZW3SESKCSS)](https://codecov.io/gh/mathworks/matlab-proxy) &nbsp; [![Downloads](https://static.pepy.tech/personalized-badge/matlab-proxy?period=month&units=international_system&left_color=grey&right_color=blue&left_text=PyPI%20downloads/month)](https://pepy.tech/project/matlab-proxy)
 
-Copyright (c) 2020-2023 The MathWorks, Inc. All rights reserved.
-
 ----
 
-`matlab-proxy` is a Python® package which enables you to launch MATLAB® and access it from a web browser.
+Use this Python® package `matlab-proxy` to start MATLAB® and access it from a web browser.
 
-Installation of this package creates an executable `matlab-proxy-app`, which launches MATLAB and provides a URL to access it. 
+Install this package to create an executable `matlab-proxy-app`, which starts MATLAB and provides you a URL to access it. 
  
-The MATLAB Proxy is under active development. For support or to report issues, see the [Feedback](#feedback) section.
+MATLAB Proxy is under active development. For support or to report issues, see [Feedback](#feedback).
 
 ----
 
@@ -25,17 +23,19 @@ The MATLAB Proxy is under active development. For support or to report issues, s
 - [Feedback](#feedback)
 
 ## Requirements
-* MATLAB® R2020b or later is installed and on the system PATH.
+* MATLAB® R2020b or later, installed and added to the system PATH.
   ```bash
   # Confirm MATLAB is on the PATH
   which matlab
   ```  
 * The dependencies required to run MATLAB.
-  Refer to the Dockerfiles in the [matlab-deps](https://github.com/mathworks-ref-arch/container-images/tree/master/matlab-deps) repository for the desired version of MATLAB.
+  For details, refer to the Dockerfiles in the [matlab-deps](https://github.com/mathworks-ref-arch/container-images/tree/master/matlab-deps) repository for your desired version of MATLAB.
   
-* X Virtual Frame Buffer (Xvfb) : (only for Linux® based systems)
+* X Virtual Frame Buffer (Xvfb) (only for Linux® based systems):
 
-  Install it on your linux machine using:
+  Installing Xvfb is optional (starting v0.11.0 of matlab-proxy) but highly recommended. Xvfb enables graphical abilities like plots and figures in the MATLAB desktop. 
+  To install Xvfb on your Linux machine, use:
+
   ```bash
   # On a Debian/Ubuntu based system:
   $ sudo apt install xvfb
@@ -47,9 +47,20 @@ The MATLAB Proxy is under active development. For support or to report issues, s
 
   $ sudo yum install xorg-x11-server-Xvfb
   ```
+  
+
+* Fluxbox Window Manager (only for Linux® based systems):
+
+  Installing fluxbox is optional but required to use Simulink Online.
+
+  Install fluxbox using:
+  ```bash
+  # On a Debian/Ubuntu based system:
+  $ sudo apt install fluxbox 
+  ```
+
 * Python versions: **3.8** | **3.9**  | **3.10** | **3.11**
 * [Browser Requirements](https://www.mathworks.com/support/requirements/browser-requirements.html)
-
 * Supported Operating Systems:
     * Linux®
     * Windows® Operating System ( starting v0.4.0 of matlab-proxy )
@@ -65,7 +76,7 @@ python -m pip install matlab-proxy
 ```
 
 ### Building From Sources
-Building from sources requires Node.js® version 16 or higher. [Click here to install Node.js](https://nodejs.org/en/)
+Building from sources requires Node.js® version 18 or higher. [Click here to install Node.js](https://nodejs.org/en/)
 
 ```bash
 git clone https://github.com/mathworks/matlab-proxy.git
@@ -85,7 +96,7 @@ which matlab-proxy-app
 
 Once the `matlab-proxy` package is installed.
 
-* Open a Linux terminal and launch the application with
+* Open a terminal and start `matlab-proxy-app`. On Linux, the command would be
   ```bash
   env MWI_BASE_URL="/matlab" matlab-proxy-app
   ```
@@ -94,7 +105,7 @@ Once the `matlab-proxy` package is installed.
 
   Running the above command will print text out on your terminal, which will contain the URL to access MATLAB. For example:
   ```
-  MATLAB can be accessed on 
+  Access MATLAB at 
   http://localhost:44549/matlab/index.html
   ```
 
@@ -127,12 +138,13 @@ The following options are available in the status panel (some options are only a
 | Stop MATLAB | Stop your MATLAB session. Use this option if you want to free up RAM and CPU resources. Available if MATLAB is running or starting.|
 | Sign Out | Sign out of MATLAB session. Use this to stop MATLAB and sign in with an alternative account. Available if using online licensing.|
 | Unset License Server Address | Unset network license manager server address. Use this to stop MATLAB and enter new licensing information. Available if using network license manager.|
+| Shut Down | Stop your MATLAB session and the `matlab-proxy` server.|
 | Feedback | Provide feedback. Opens a new tab to create an issue on GitHub.|
 | Help | Open a help pop-up for a detailed description of the options.|
 
 ## Examples
 * For installing/usage in a Docker container, see this [Dockerfile](./examples/Dockerfile) and its [README](./examples/README.md).
-* For upgrading **matlab-proxy** in an existing Docker image, see this [Dockerfile.upgrade.matlab-proxy](./examples/Dockerfile.upgrade.matlab-proxy) and its [README](./examples/README.md#upgrading-matlab-proxy-package-in-a-docker-image).*
+* For upgrading **matlab-proxy** in an existing Docker image, see this [Dockerfile.upgrade.matlab-proxy](./examples/Dockerfile.upgrade.matlab-proxy) and its [README](./examples/README.md#upgrading-matlab-proxy-package-in-a-docker-image).
 * For usage in a Jupyter environment, see [jupyter-matlab-proxy](https://github.com/mathworks/jupyter-matlab-proxy).
 
 ## Platform Support
@@ -162,12 +174,18 @@ Install the version >=0.5.0 to use the package on MacOS.
 $ pip install --upgrade matlab-proxy>=0.5.0
 ```
 
+### Windows Subsystem for Linux (WSL 2)
+
+To install `matlab-proxy` in WSL 2, follow the steps mentioned in the [Installation Guide for WSL 2](./install_guides/wsl2/README.md).
+
 ## Using an already activated MATLAB with matlab-proxy
 `matlab-proxy` version `v0.7.0` introduces support for using an existing MATLAB license. Use the Existing License option only if you have an activated MATLAB. This allows you to start MATLAB without authenticating every time.
 
 ## Limitations
-This package supports the same subset of MATLAB features and commands as MATLAB® Online, except there is no support for Simulink® Online.
-[Click here for a full list of Specifications and Limitations for MATLAB Online](https://www.mathworks.com/products/matlab-online/limitations.html). 
+This package supports the same set of MATLAB features and commands as MATLAB® Online. For the full list, see 
+[Specifications and Limitations for MATLAB Online](https://www.mathworks.com/products/matlab-online/limitations.html). 
+
+Simulink Online is supported exclusively on Linux platforms starting from MATLAB R2024b.
 
 ## Security
 We take your security concerns seriously, and will attempt to address all concerns.
@@ -181,3 +199,9 @@ Using the latest version will provide the latest available security updates or p
 
 We encourage you to try this repository with your environment and provide feedback. 
 If you encounter a technical issue or have an enhancement request, create an issue [here](https://github.com/mathworks/matlab-proxy/issues)
+
+---
+
+Copyright 2020-2025 The MathWorks, Inc.
+
+---

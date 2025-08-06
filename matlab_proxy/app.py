@@ -1,9 +1,10 @@
-# Copyright 2020-2023 The MathWorks, Inc.
+# Copyright 2020-2025 The MathWorks, Inc.
 
 import asyncio
 import json
 import mimetypes
 import pkgutil
+import secrets
 import sys
 
 import aiohttp
@@ -15,11 +16,11 @@ from cryptography import fernet
 import matlab_proxy
 from matlab_proxy import constants, settings, util
 from matlab_proxy.app_state import AppState
+from matlab_proxy.constants import IS_CONCURRENCY_CHECK_ENABLED
 from matlab_proxy.util import mwi
+from matlab_proxy.util.mwi import download, token_auth
 from matlab_proxy.util.mwi import environment_variables as mwi_env
-from matlab_proxy.util.mwi import token_auth
 from matlab_proxy.util.mwi.exceptions import AppError, InvalidTokenError, LicensingError
-
 
 mimetypes.add_type("font/woff", ".woff")
 mimetypes.add_type("font/woff2", ".woff2")
@@ -93,28 +94,73 @@ def marshal_error(error):
         return {"message": error.__str__, "logs": "", "type": error.__class__.__name__}
 
 
-async def create_status_response(app, loadUrl=None):
-    """Send a generic status response about the state of server,MATLAB and MATLAB Licensing
+def create_status_response(app, loadUrl=None, client_id=None, is_active_client=None):
+    """Send a generic status response about the state of server, MATLAB, MATLAB Licensing and the client session status.
 
     Args:
         app (aiohttp.web.Application): Web Server
         loadUrl (String, optional): Represents the root URL. Defaults to None.
+        client_id (String, optional): Represents the generated client_id when concurrency check is enabled and client does not have a client_id. Defaults to None.
+        is_active_client (Boolean, optional): Represents whether the current client is the active_client when concurrency check is enabled. Defaults to None.
 
     Returns:
-        JSONResponse: A JSONResponse object containing the generic state of the server, MATLAB and MATLAB Licensing.
+        JSONResponse: A JSONResponse object containing the generic state of the server, MATLAB, MATLAB Licensing and the client session status.
     """
     state = app["state"]
-    return web.json_response(
-        {
-            "matlab": {
-                "status": await state.get_matlab_state(),
-            },
-            "licensing": marshal_licensing_info(state.licensing),
-            "loadUrl": loadUrl,
-            "error": marshal_error(state.error),
-            "wsEnv": state.settings.get("ws_env", ""),
-        }
-    )
+    status = {
+        "matlab": {
+            "status": state.get_matlab_state(),
+            "busyStatus": state.matlab_busy_state,
+            "version": state.settings["matlab_version"],
+        },
+        "licensing": marshal_licensing_info(state.licensing),
+        "loadUrl": loadUrl,
+        "error": marshal_error(state.error),
+        "warnings": state.warnings,
+        "wsEnv": state.settings.get("ws_env", ""),
+    }
+
+    if client_id:
+        status["clientId"] = client_id
+    if is_active_client is not None:
+        status["isActiveClient"] = is_active_client
+
+    return web.json_response(status)
+
+
+@token_auth.authenticate_access_decorator
+async def clear_client_id(req):
+    """API endpoint to reset the active client
+
+    Args:
+        req (HTTPRequest): HTTPRequest Object
+
+    Returns:
+        Response: an empty response in JSON format
+    """
+    state = req.app["state"]
+    state.active_client = None
+    logger.debug("Client Id was cleaned!!!")
+    # This response is of no relevance to the front-end as the client has already exited
+    return web.json_response({})
+
+
+def reset_timer_decorator(endpoint):
+    """This decorator resets the IDLE timer if MWI_IDLE_TIMEOUT environment variable is supplied.
+
+    Args:
+        endpoint (callable): An asynchronous function which is a request handler.
+    """
+
+    async def reset_timer(req):
+        state = req.app["state"]
+
+        if state.is_idle_timeout_enabled:
+            await state.reset_timer()
+
+        return await endpoint(req)
+
+    return reset_timer
 
 
 @token_auth.authenticate_access_decorator
@@ -131,7 +177,7 @@ async def get_auth_token(req):
 
     return web.json_response(
         {
-            "authToken": auth_token,
+            "token": auth_token,
         }
     )
 
@@ -150,16 +196,29 @@ async def get_env_config(req):
     """
     state = req.app["state"]
     config = state.settings["env_config"]
-    config["authEnabled"] = state.settings["mwi_is_token_auth_enabled"]
 
+    config["isConcurrencyEnabled"] = IS_CONCURRENCY_CHECK_ENABLED
     # In a previously authenticated session, if the url is accessed without the token(using session cookie), send the token as well.
-    config["authStatus"] = True if await token_auth.authenticate_request(req) else False
+    config["authentication"] = {
+        "enabled": state.settings["mwi_is_token_auth_enabled"],
+        "status": True if await token_auth.authenticate_request(req) else False,
+    }
+
+    config["matlab"] = {
+        "version": state.settings["matlab_version"],
+        "supportedVersions": constants.SUPPORTED_MATLAB_VERSIONS,
+    }
+
+    # Send timeout duration for the idle timer as part of the response
+    config["idleTimeoutDuration"] = state.settings["mwi_idle_timeout"]
+
     return web.json_response(config)
 
 
 # @token_auth.authenticate_access_decorator
 # Explicitly disabling authentication for this end-point,
 # because the front end requires this endpoint to be available at all times.
+@reset_timer_decorator
 async def get_status(req):
     """API Endpoint to get the generic status of the server, MATLAB and MATLAB Licensing.
 
@@ -169,7 +228,19 @@ async def get_status(req):
     Returns:
         JSONResponse: JSONResponse object containing information about the server, MATLAB and MATLAB Licensing.
     """
-    return await create_status_response(req.app)
+    # The client sends the CLIENT_ID as a query parameter if the concurrency check has been set to true.
+    state = req.app["state"]
+    client_id = req.query.get("MWI_CLIENT_ID", None)
+    transfer_session = json.loads(req.query.get("TRANSFER_SESSION", "false"))
+    is_desktop = req.query.get("IS_DESKTOP", False)
+
+    generated_client_id, is_active_client = state.get_session_status(
+        is_desktop, client_id, transfer_session
+    )
+
+    return create_status_response(
+        req.app, client_id=generated_client_id, is_active_client=is_active_client
+    )
 
 
 # @token_auth.authenticate_access_decorator
@@ -195,7 +266,7 @@ async def authenticate(req):
 
     return web.json_response(
         {
-            "authStatus": is_authenticated,
+            "status": is_authenticated,
             "error": error,
         }
     )
@@ -216,7 +287,7 @@ async def start_matlab(req):
     # Start MATLAB
     await state.start_matlab(restart_matlab=True)
 
-    return await create_status_response(req.app)
+    return create_status_response(req.app)
 
 
 @token_auth.authenticate_access_decorator
@@ -233,7 +304,7 @@ async def stop_matlab(req):
 
     await state.stop_matlab()
 
-    return await create_status_response(req.app)
+    return create_status_response(req.app)
 
 
 @token_auth.authenticate_access_decorator
@@ -260,11 +331,20 @@ async def set_licensing_info(req):
             await state.set_licensing_nlm(data.get("connectionString"))
 
         elif lic_type == "mhlm":
+            # If matlab version could not be determined on startup update
+            # the value received from the front-end.
+            if not state.settings.get(
+                "matlab_version_determined_on_startup"
+            ) and data.get("matlabVersion"):
+                state.settings["matlab_version"] = data.get("matlabVersion")
+
             await state.set_licensing_mhlm(
                 data.get("token"), data.get("emailAddress"), data.get("sourceId")
             )
+
         elif lic_type == "existing_license":
             state.set_licensing_existing_license()
+
         else:
             raise Exception(
                 'License type must be "NLM" or "MHLM" or "ExistingLicense"!'
@@ -275,7 +355,7 @@ async def set_licensing_info(req):
     # This is true for a user who has only one license associated with their account
     await __start_matlab_if_licensed(state)
 
-    return await create_status_response(req.app)
+    return create_status_response(req.app)
 
 
 @token_auth.authenticate_access_decorator
@@ -299,7 +379,7 @@ async def update_entitlement(req):
         await state.update_user_selected_entitlement_info(entitlement_id)
         await __start_matlab_if_licensed(state)
 
-    return await create_status_response(req.app)
+    return create_status_response(req.app)
 
 
 async def __start_matlab_if_licensed(state):
@@ -322,41 +402,49 @@ async def licensing_info_delete(req):
     # Removing license information implies terminating MATLAB
     await state.stop_matlab()
 
+    # When removing licensing data, if matlab version was fetched from the user, remove it
+    # on the server side to have a complete 'reset'.
+    if state.licensing["type"] == "mhlm" and not state.settings.get(
+        "matlab_version_determined_on_startup"
+    ):
+        state.settings["matlab_version"] = None
+
     # Unset licensing information
     state.unset_licensing()
 
-    # Persist licensing information
-    state.persist_licensing()
+    # Persist config information
+    state.persist_config_data()
 
-    return await create_status_response(req.app)
+    return create_status_response(req.app)
 
 
 @token_auth.authenticate_access_decorator
-async def termination_integration_delete(req):
-    """API Endpoint to terminate the Integration and shutdown the server.
+async def shutdown_integration_delete(req):
+    """API Endpoint to shutdown the Integration
 
     Args:
         req (HTTPRequest): HTTPRequest Object
     """
-    logger.debug("Terminating the integration...")
     state = req.app["state"]
 
+    logger.info(f"Shutting down {state.settings['integration_name']}...")
+
     # Send response manually because this has to happen before the application exits
-    res = await create_status_response(req.app, "../")
+    res = create_status_response(req.app, "../")
     await res.prepare(req)
     await res.write_eof()
 
-    logger.debug("Shutting down the server...")
-    # End termination with 0 exit code to indicate intentional termination
+    # Gracefully shutdown the server
     await req.app.shutdown()
     await req.app.cleanup()
-    """When testing with pytest, its not possible to catch sys.exit(0) using the construct
-    'with pytest.raises()', there by causing the test : test_termination_integration_delete()
-    to fail. Inorder to avoid this, adding the below if condition to check to skip sys.exit(0) when testing
-    """
-    logger.debug("Exiting with return code 0")
-    if not mwi_env.is_testing_mode_enabled():
-        sys.exit(0)
+
+    loop = util.get_event_loop()
+    # Run the current batch of coroutines in the event loop and then exit.
+    # This completes the loop.run_forever() blocking call and subsequent code
+    # in create_and_start_app() resumes execution.
+    loop.stop()
+
+    return res
 
 
 # @token_auth.authenticate_access_decorator
@@ -405,7 +493,7 @@ def make_static_route_table(app):
     Returns:
         Dict: Containing information about the static files and header information.
     """
-    from pkg_resources import resource_isdir, resource_listdir
+    import importlib_resources
 
     from matlab_proxy import gui
     from matlab_proxy.gui import static
@@ -422,8 +510,9 @@ def make_static_route_table(app):
         (gui.static.js.__name__, "/static/js"),
         (gui.static.media.__name__, "/static/media"),
     ]:
-        for name in resource_listdir(mod, ""):
-            if not resource_isdir(mod, name):
+        for entry in importlib_resources.files(mod).iterdir():
+            name = entry.name
+            if not importlib_resources.files(mod).joinpath(name).is_dir():
                 if name != "__init__.py":
                     # Special case for manifest.json
                     if "manifest.json" in name:
@@ -490,7 +579,9 @@ async def matlab_view(req):
         await ws_server.prepare(req)
 
         async with aiohttp.ClientSession(
-            cookies=req.cookies, connector=aiohttp.TCPConnector(verify_ssl=False)
+            trust_env=True,
+            cookies=req.cookies,
+            connector=aiohttp.TCPConnector(ssl=False),
         ) as client_session:
             try:
                 async with client_session.ws_connect(
@@ -552,27 +643,33 @@ async def matlab_view(req):
 
     # Standard HTTP Request
     else:
-        # Proxy, injecting request header
+        # Proxy, injecting request header, disabling request timeouts
+        timeout = aiohttp.ClientTimeout(total=None)
         async with aiohttp.ClientSession(
-            connector=aiohttp.TCPConnector(verify_ssl=False),
+            trust_env=True,
+            connector=aiohttp.TCPConnector(ssl=False),
+            timeout=timeout,
         ) as client_session:
             try:
                 req_body = await transform_body(req)
+                req_url = await transform_request_url(
+                    req, matlab_base_url=matlab_base_url
+                )
                 # Set content length in case of modification
                 reqH["Content-Length"] = str(len(req_body))
                 reqH["x-forwarded-proto"] = "http"
 
                 async with client_session.request(
                     req.method,
-                    f"{matlab_base_url}{req.rel_url}",
+                    req_url,
                     headers={**reqH, **{"mwapikey": mwapikey}},
                     allow_redirects=False,
                     data=req_body,
+                    params=None,
                 ) as res:
                     headers = res.headers.copy()
                     body = await res.read()
                     headers.update(req.app["settings"]["mwi_custom_http_headers"])
-
                     return web.Response(headers=headers, status=res.status, body=body)
 
             # Handles any pending HTTP requests from the browser when the MATLAB process is terminated before responding to them.
@@ -591,6 +688,34 @@ async def matlab_view(req):
                     f"Failed to forward HTTP request to MATLAB with error: {err}"
                 )
                 raise web.HTTPNotFound()
+
+
+async def transform_request_url(req, matlab_base_url):
+    """
+    Performs any transformations that may be required on the URL.
+
+    If the request is identified as a download request it transforms the request URL to
+    support downloading the file.
+
+    The original constructed URL is returned, when there are no transformations to be applied.
+
+    Args:
+        req: The request object that contains the relative URL and other request information.
+        matlab_base_url: The base URL of the MATLAB service to which the relative URL should be appended.
+
+    Returns:
+        A string representing the transformed URL, or the original URL.
+    """
+    original_request_url = f"{matlab_base_url}{req.rel_url}"
+
+    if download.is_download_request(req):
+        download_url = await download.get_download_url(req)
+        if download_url:
+            transformed_request_url = f"{matlab_base_url}{download_url}"
+            logger.debug(f"Transformed Request url: {transformed_request_url}")
+            return transformed_request_url
+
+    return original_request_url
 
 
 async def transform_body(req):
@@ -648,7 +773,7 @@ async def matlab_starter(app):
     state = app["state"]
 
     try:
-        if state.is_licensed() and await state.get_matlab_state() == "down":
+        if state.is_licensed() and state.get_matlab_state() == "down":
             await state.start_matlab()
     except asyncio.CancelledError:
         # Ensure MATLAB is terminated
@@ -679,17 +804,9 @@ async def cleanup_background_tasks(app):
 
     await state.stop_matlab(force_quit=True)
 
-    # Stop any running async tasks
-    logger = mwi.logger.get()
-    tasks = state.tasks
-    for task_name, task in tasks.items():
-        if not task.cancelled():
-            logger.debug(f"Cancelling MWI task: {task_name} : {task} ")
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+    # Cleanup server tasks
+    server_tasks = state.server_tasks
+    await util.cancel_tasks(server_tasks)
 
 
 def configure_and_start(app):
@@ -704,6 +821,18 @@ def configure_and_start(app):
     loop = util.get_event_loop()
 
     web_logger = None if not mwi_env.is_web_logging_enabled() else logger
+
+    # Setup the session storage,
+    # Uniqified per session to prevent multiple proxy servers on the same FQDN from interfering with each other.
+    uniqify_session_cookie = secrets.token_hex()
+    fernet_key = fernet.Fernet.generate_key()
+    f = fernet.Fernet(fernet_key)
+    aiohttp_session_setup(
+        app,
+        EncryptedCookieStorage(
+            f, cookie_name="matlab-proxy-session-" + uniqify_session_cookie
+        ),
+    )
 
     # Setup runner
     runner = web.AppRunner(app, logger=web_logger, access_log=web_logger)
@@ -765,6 +894,7 @@ def create_app(config_name=matlab_proxy.get_default_config_name()):
     app.router.add_route("GET", f"{base_url}/get_auth_token", get_auth_token)
     app.router.add_route("GET", f"{base_url}/get_env_config", get_env_config)
     app.router.add_route("PUT", f"{base_url}/start_matlab", start_matlab)
+    app.router.add_route("POST", f"{base_url}/clear_client_id", clear_client_id)
     app.router.add_route("DELETE", f"{base_url}/stop_matlab", stop_matlab)
     app.router.add_route("PUT", f"{base_url}/set_licensing_info", set_licensing_info)
     app.router.add_route("PUT", f"{base_url}/update_entitlement", update_entitlement)
@@ -772,7 +902,7 @@ def create_app(config_name=matlab_proxy.get_default_config_name()):
         "DELETE", f"{base_url}/set_licensing_info", licensing_info_delete
     )
     app.router.add_route(
-        "DELETE", f"{base_url}/terminate_integration", termination_integration_delete
+        "DELETE", f"{base_url}/shutdown_integration", shutdown_integration_delete
     )
     app.router.add_route("*", f"{base_url}/", root_redirect)
     app.router.add_route("*", f"{base_url}", root_redirect)
@@ -780,25 +910,39 @@ def create_app(config_name=matlab_proxy.get_default_config_name()):
     app.router.add_route("*", f"{base_url}/{{proxyPath:.*}}", matlab_view)
     app.on_cleanup.append(cleanup_background_tasks)
 
-    # Setup the session storage
-    fernet_key = fernet.Fernet.generate_key()
-    f = fernet.Fernet(fernet_key)
-    aiohttp_session_setup(
-        app, EncryptedCookieStorage(f, cookie_name="matlab-proxy-session")
-    )
-
     return app
 
 
-def main():
-    """Starting point of the integration. Creates the web app and runs indefinitely."""
+def configure_no_proxy_in_env():
+    """Update the environment variable no_proxy to allow communication between processes on the local machine."""
+    import os
 
-    # The integration needs to be called with --config flag.
-    # Parse the passed cli arguments.
-    desired_configuration_name = util.parse_cli_args()["config"]
+    no_proxy_whitelist = ["0.0.0.0", "localhost", "127.0.0.1"]
+
+    no_proxy_env = os.environ.get("no_proxy")
+    if no_proxy_env is None:
+        os.environ["no_proxy"] = ",".join(no_proxy_whitelist)
+    else:
+        # Create set with leading and trailing whitespaces stripped
+        existing_no_proxy_env = [
+            val.lstrip().rstrip() for val in no_proxy_env.split(",")
+        ]
+        os.environ["no_proxy"] = ",".join(
+            set(existing_no_proxy_env + no_proxy_whitelist)
+        )
+    logger.info(f"Setting no_proxy to: {os.environ.get('no_proxy')}")
+
+
+def create_and_start_app(config_name):
+    """Creates and start the web server. Will block until the server is interrupted or is shut down
+
+    Args:
+        config_name (str): Name of the configuration to use with matlab-proxy.
+    """
+    configure_no_proxy_in_env()
 
     # Create, configure and start the app.
-    app = create_app(config_name=desired_configuration_name)
+    app = create_app(config_name)
     app = configure_and_start(app)
 
     loop = util.get_event_loop()
@@ -806,25 +950,54 @@ def main():
     # Add signal handlers for the current python process
     loop = util.add_signal_handlers(loop)
     try:
+        # Further execution is stopped here until an interrupt is raised
         loop.run_forever()
+
     except SystemExit:
         pass
 
-    async def shutdown():
-        """Shuts down the app in the event of a signal interrupt."""
-        logger.info("Shutting down MATLAB proxy-app")
-
-        await app.shutdown()
-        await app.cleanup()
-
-        # Shutdown any running tasks.
-        await util.cancel_tasks(asyncio.all_tasks())
-
+    # After handling the interrupt, proceed with shutting down the server gracefully.
     try:
-        loop.run_until_complete(shutdown())
-    except:
+        running_tasks = asyncio.all_tasks(loop)
+        loop.run_until_complete(
+            asyncio.gather(
+                app.shutdown(),
+                app.cleanup(),
+                util.cancel_tasks(running_tasks),
+                return_exceptions=False,
+            )
+        )
+
+    except Exception:
         pass
 
     logger.info("Finished shutting down. Thank you for using the MATLAB proxy.")
     loop.close()
     sys.exit(0)
+
+
+def print_version_and_exit():
+    """prints the version of the package and exits"""
+    from importlib.metadata import version
+
+    matlab_proxy_version = version(__name__.split(".")[0])
+    print(f"{matlab_proxy_version}")
+    sys.exit(0)
+
+
+def main():
+    """Starting point of the integration. Creates the web app and runs indefinitely."""
+
+    if util.parse_cli_args()["version"]:
+        print_version_and_exit()
+
+    # The integration needs to be called with --config flag.
+    # Parse the passed cli arguments.
+    desired_configuration_name = util.parse_cli_args()["config"]
+
+    create_and_start_app(config_name=desired_configuration_name)
+
+
+# In support of enabling debugging in a Python Debugger (VSCode)
+if __name__ == "__main__":
+    main()
